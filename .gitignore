@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+web/dist/
+
+# 前端编译产物（由 npm run build 生成，不追踪）
+server/web/
+
+# 环境变量
+.env
+.env.*
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
