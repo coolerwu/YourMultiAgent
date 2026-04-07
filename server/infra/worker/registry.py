@@ -74,10 +74,23 @@ def get_all_capabilities() -> list[CapabilityEntity]:
     return [entity for entity, _ in _REGISTRY.values()]
 
 
-async def invoke(name: str, params: dict[str, Any]) -> Any:
+async def invoke(name: str, params: dict[str, Any], context: dict[str, Any] | None = None) -> Any:
+    """
+    调用已注册的 capability。
+    context 用于运行时注入，目前支持：
+      {"work_dir": "/abs/path/agentA/"}  — 文件操作的沙箱根目录
+    """
     if name not in _REGISTRY:
         raise ValueError(f"未知 capability: {name}")
     _, fn = _REGISTRY[name]
+    # 若函数声明了 _context 参数，则注入 context
+    sig = inspect.signature(fn)
+    if "_context" in sig.parameters:
+        merged = dict(params)
+        merged["_context"] = context or {}
+        if inspect.iscoroutinefunction(fn):
+            return await fn(**merged)
+        return fn(**merged)
     if inspect.iscoroutinefunction(fn):
         return await fn(**params)
     return fn(**params)

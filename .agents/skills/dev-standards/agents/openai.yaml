@@ -1,0 +1,7 @@
+interface:
+  display_name: "Dev Standards"
+  short_description: "项目编码规范与测试约束"
+  default_prompt: "Use $dev-standards to check where code should live, how it should be named, and what tests and validation steps are required."
+
+policy:
+  allow_implicit_invocation: true

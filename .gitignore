@@ -13,6 +13,9 @@ web/dist/
 # 前端编译产物（由 npm run build 生成，不追踪）
 server/web/
 
+# 本地测试数据（run_test.sh 使用）
+data/
+
 # 环境变量
 .env
 .env.*

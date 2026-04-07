@@ -1,6 +1,6 @@
 /**
  * utils/api.js
- * 基础 HTTP 客户端，统一处理 base URL 和错误。
+ * 基础 HTTP 客户端 + WebSocket 工具函数。
  */
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -25,28 +25,57 @@ export const api = {
   delete: (path) => request('DELETE', path),
 }
 
-/** SSE 流式请求，cb(chunk) 每次收到数据回调 */
-export async function streamPost(path, body, onChunk, onDone) {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const text = decoder.decode(value)
-    for (const line of text.split('\n')) {
-      if (line.startsWith('data: ')) {
-        try {
-          const data = JSON.parse(line.slice(6))
-          if (data.type === 'done') { onDone?.(); return }
-          onChunk(data)
-        } catch (_) {}
-      }
+/**
+ * WebSocket 流式执行。
+ * 连接成功后立即发送 {user_message}，逐条接收 dict 事件。
+ * 收到 done 或 error 后自动关闭连接。
+ *
+ * @param {string} path       - WebSocket 路径，如 /ws/workspaces/xxx/run
+ * @param {string} userMessage
+ * @param {Function} onChunk  - 每条非 done 事件回调
+ * @param {Function} onDone   - 收到 done 或连接关闭时回调
+ * @param {Function} onError  - 收到 error 事件或连接异常时回调
+ * @returns {WebSocket}       - 返回 ws 实例，外部可调用 ws.close() 中止
+ */
+export function wsRun(path, payload, onChunk, onDone, onError) {
+  // http(s):// → ws(s)://；无协议前缀时直接拼
+  const wsBase = BASE.replace(/^http/, 'ws')
+  const ws = new WebSocket(`${wsBase}${path}`)
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify(payload))
+  }
+
+  ws.onmessage = (e) => {
+    let data
+    try {
+      data = JSON.parse(e.data)
+    } catch (_) {
+      return
+    }
+    if (data.type === 'done') {
+      onDone?.()
+      ws.close()
+      return
+    }
+    if (data.type === 'error') {
+      onError?.(new Error(data.message ?? 'WebSocket error'))
+      ws.close()
+      return
+    }
+    onChunk?.(data)
+  }
+
+  ws.onerror = () => {
+    onError?.(new Error('WebSocket 连接异常'))
+  }
+
+  ws.onclose = (e) => {
+    // 非正常关闭（1000 = normal）且未被 onmessage 触发 done
+    if (e.code !== 1000) {
+      onDone?.()
     }
   }
-  onDone?.()
+
+  return ws
 }

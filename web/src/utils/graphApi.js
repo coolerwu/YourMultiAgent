@@ -1,9 +1,10 @@
 /**
  * utils/graphApi.js
  * Agent Graph CRUD + 运行 API。
+ * run() 使用 WebSocket 替代 SSE。
  */
 
-import { api, streamPost } from './api'
+import { api, wsRun } from './api'
 
 export const graphApi = {
   list: () => api.get('/api/graphs'),
@@ -11,8 +12,11 @@ export const graphApi = {
   create: (data) => api.post('/api/graphs', data),
   update: (id, data) => api.put(`/api/graphs/${id}`, data),
   delete: (id) => api.delete(`/api/graphs/${id}`),
-  run: (id, userMessage, onChunk, onDone) =>
-    streamPost(`/api/graphs/${id}/run`, { user_message: userMessage }, onChunk, onDone),
+  optimizePrompt: (data) => api.post('/api/agents/prompt-optimize', data),
+  generateWorker: (data) => api.post('/api/agents/worker-generate', data),
+  /** 流式执行，返回 WebSocket 实例（可调用 .close() 中止） */
+  run: (id, userMessage, onChunk, onDone, onError) =>
+    wsRun(`/ws/graphs/${id}/run`, { user_message: userMessage }, onChunk, onDone, onError),
 }
 
 export const workerApi = {

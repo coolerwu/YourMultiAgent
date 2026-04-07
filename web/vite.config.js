@@ -6,6 +6,9 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   base: '/',
+  test: {
+    environment: 'jsdom',
+  },
   build: {
     outDir: path.resolve(__dirname, '../server/web'),
     emptyOutDir: true,

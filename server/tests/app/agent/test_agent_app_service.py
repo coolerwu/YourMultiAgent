@@ -1,97 +1,249 @@
 """
 tests/app/agent/test_agent_app_service.py
 
-AgentAppService 单测：mock gateway 和 orchestrator，不涉及真实 LLM 或存储。
+AgentAppService 单测：mock orchestrator / workspace gateway / llm gateway。
 """
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from server.app.agent.agent_app_service import AgentAppService
-from server.app.agent.command.create_agent_cmd import AgentNodeCmd, CreateGraphCmd, GraphEdgeCmd
-from server.app.agent.command.run_agent_cmd import RunGraphCmd
-from server.domain.agent.entity.agent_entity import EdgeCondition, LLMProvider
-
-
-def _make_create_cmd(name="测试图"):
-    return CreateGraphCmd(
-        name=name,
-        entry_node="n1",
-        agents=[
-            AgentNodeCmd(
-                id="n1", name="Agent1",
-                provider=LLMProvider.ANTHROPIC,
-                model="claude-sonnet-4-6",
-                system_prompt="你是助手",
-            )
-        ],
-        edges=[],
-    )
+from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
+from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
+from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
 
 
 @pytest.fixture
-def mock_gateway():
+def mock_orchestrator():
+    orchestrator = MagicMock()
+
+    async def _run(_workspace, _user_message, _session):
+        yield {"type": "plan_created"}
+        yield {"type": "text", "node": "coordinator", "actor_id": "coordinator", "actor_name": "主控", "content": "规划完成"}
+        yield {"type": "coordinator_end", "node": "coordinator"}
+        yield {"type": "run_summary", "actor_id": "coordinator", "actor_name": "主控", "summary": "已完成总结"}
+        yield {"type": "done"}
+
+    orchestrator.run = _run
+    return orchestrator
+
+
+@pytest.fixture
+def mock_llm_gateway():
+    return MagicMock()
+
+
+@pytest.fixture
+def mock_workspace_gateway():
     gw = AsyncMock()
-    gw.find_all.return_value = []
     gw.find_by_id.return_value = None
     return gw
 
 
 @pytest.fixture
-def mock_orchestrator():
-    return MagicMock()
-
-
-@pytest.fixture
-def svc(mock_gateway, mock_orchestrator):
-    return AgentAppService(mock_gateway, mock_orchestrator)
+def svc(mock_orchestrator, mock_llm_gateway, mock_workspace_gateway):
+    return AgentAppService(mock_orchestrator, mock_llm_gateway, mock_workspace_gateway)
 
 
 @pytest.mark.asyncio
-async def test_create_graph_calls_save(svc, mock_gateway):
-    vo = await svc.create_graph(_make_create_cmd("新图"))
-    assert vo.name == "新图"
-    assert vo.entry_node == "n1"
-    mock_gateway.save.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_create_graph_generates_id(svc):
-    vo1 = await svc.create_graph(_make_create_cmd())
-    vo2 = await svc.create_graph(_make_create_cmd())
-    assert vo1.id != vo2.id
-
-
-@pytest.mark.asyncio
-async def test_list_graphs_empty(svc, mock_gateway):
-    mock_gateway.find_all.return_value = []
-    result = await svc.list_graphs()
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_get_graph_not_found(svc, mock_gateway):
-    mock_gateway.find_by_id.return_value = None
-    result = await svc.get_graph("nonexistent")
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_delete_graph_delegates(svc, mock_gateway):
-    mock_gateway.delete.return_value = True
-    ok = await svc.delete_graph("g1")
-    assert ok is True
-    mock_gateway.delete.assert_awaited_once_with("g1")
-
-
-@pytest.mark.asyncio
-async def test_run_graph_not_found_raises(svc, mock_gateway):
-    mock_gateway.find_by_id.return_value = None
-    cmd = RunGraphCmd(graph_id="bad_id", user_message="hello")
-
+async def test_run_workspace_not_found_raises(svc):
     async def collect():
-        async for _ in svc.run_graph(cmd):
+        async for _ in svc.run_workspace("bad-id", "hello"):
             pass
 
-    with pytest.raises(ValueError, match="Graph 不存在"):
+    with pytest.raises(ValueError, match="Workspace 不存在"):
         await collect()
+
+
+@pytest.mark.asyncio
+async def test_run_workspace_streams_orchestrator_events(svc, mock_workspace_gateway):
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+
+    events = [event async for event in svc.run_workspace("ws1", "hello")]
+
+    assert events[-1]["type"] == "done"
+    assert any(event["type"] == "session_created" for event in events)
+    assert any(event["type"] == "session_updated" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_run_workspace_reuses_existing_session(svc, mock_workspace_gateway):
+    session = ChatSessionEntity(
+        id="session-1",
+        title="历史会话",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        sessions=[session],
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+
+    events = [event async for event in svc.run_workspace("ws1", "继续", "session-1")]
+
+    assert all(event["type"] != "session_created" for event in events)
+    assert session.message_count >= 3
+
+
+@pytest.mark.asyncio
+async def test_run_workspace_uses_llm_compact_for_long_session(svc, mock_workspace_gateway, mock_llm_gateway):
+    from server.domain.agent.service.session_history import append_session_message
+
+    session = ChatSessionEntity(
+        id="session-1",
+        title="历史会话",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    for index in range(25):
+        append_session_message(session, role="user", kind="user", content=f"历史消息 {index}")
+
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        sessions=[session],
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+    llm = AsyncMock()
+    llm.ainvoke.return_value = MagicMock(
+        content="【用户目标】\n继续推进\n【已完成】\n已有历史\n【关键约束】\n无\n【重要文件】\n无\n【待继续】\n继续回答"
+    )
+    mock_llm_gateway.build.return_value = llm
+
+    events = [event async for event in svc.run_workspace("ws1", "继续", "session-1")]
+
+    assert events[-1]["type"] == "done"
+    assert "【用户目标】" in session.summary
+    assert mock_llm_gateway.build.called
+
+
+@pytest.mark.asyncio
+async def test_optimize_prompt_uses_workspace_profile(svc, mock_llm_gateway, mock_workspace_gateway):
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        llm_profiles=[
+            LLMProfileEntity(
+                id="profile-1",
+                name="Claude",
+                provider=LLMProvider.ANTHROPIC,
+                model="claude-sonnet-4-6",
+            )
+        ],
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+    llm = AsyncMock()
+    llm.ainvoke.return_value = MagicMock(content='{"optimized_prompt":"新的 Prompt","reason":"更清晰。"}')
+    mock_llm_gateway.build.return_value = llm
+
+    result = await svc.optimize_prompt(
+        OptimizePromptCmd(
+            name="Writer",
+            system_prompt="你是助手",
+            workspace_id="ws1",
+            llm_profile_id="profile-1",
+        )
+    )
+
+    assert result["optimized_prompt"] == "新的 Prompt"
+    assert result["reason"] == "更清晰。"
+    mock_workspace_gateway.find_by_id.assert_awaited_once_with("ws1")
+
+
+@pytest.mark.asyncio
+async def test_optimize_prompt_falls_back_to_plain_text_when_json_invalid(svc, mock_llm_gateway):
+    llm = AsyncMock()
+    llm.ainvoke.return_value = MagicMock(content="直接输出优化后的 Prompt")
+    mock_llm_gateway.build.return_value = llm
+
+    result = await svc.optimize_prompt(
+        OptimizePromptCmd(
+            name="Writer",
+            system_prompt="你是助手",
+        )
+    )
+
+    assert result["optimized_prompt"] == "直接输出优化后的 Prompt"
+    assert "回退" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_optimize_edge_prompt_passes_edge_context(svc, mock_llm_gateway):
+    llm = AsyncMock()
+    llm.ainvoke.return_value = MagicMock(
+        content='{"optimized_prompt":"请基于 report.md 继续整理摘要。","reason":"补充了下游动作和输入来源。"}'
+    )
+    mock_llm_gateway.build.return_value = llm
+
+    result = await svc.optimize_prompt(
+        OptimizePromptCmd(
+            name="Writer",
+            system_prompt="继续处理",
+            prompt_kind="edge_prompt",
+            source_name="Planner",
+            target_name="Writer",
+            artifact="report.md",
+        )
+    )
+
+    assert result["optimized_prompt"] == "请基于 report.md 继续整理摘要。"
+    sent_messages = llm.ainvoke.await_args.args[0]
+    assert "Prompt 类型：连线 Prompt" in sent_messages[1].content
+    assert "上游节点：Planner" in sent_messages[1].content
+
+
+@pytest.mark.asyncio
+async def test_generate_worker_filters_unknown_tools(svc, mock_llm_gateway):
+    llm = AsyncMock()
+    llm.ainvoke.return_value = MagicMock(
+        content='{"workers":[{"name":"前端研发","system_prompt":"你负责页面实现。","work_subdir":"frontend","tools":["write_file","bad_tool"]},{"name":"测试","system_prompt":"你负责测试验证。","work_subdir":"qa","tools":["run_command"]}],"reason":"适合负责实现与验证。"}'
+    )
+    mock_llm_gateway.build.return_value = llm
+
+    result = await svc.generate_worker(
+        GenerateWorkerCmd(
+            user_goal="需要一个前端研发 Worker",
+            available_tools=["write_file", "run_command"],
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+        )
+    )
+
+    assert len(result["workers"]) == 2
+    assert result["workers"][0]["name"] == "前端研发"
+    assert result["workers"][0]["work_subdir"] == "frontend"
+    assert result["workers"][0]["tools"] == ["write_file"]
+    assert result["workers"][1]["name"] == "测试"
+    assert result["workers"][1]["tools"] == ["run_command"]
+    assert result["reason"] == "适合负责实现与验证。"

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Commit Push"
+  short_description: "项目提交流程与发布前检查"
+  default_prompt: "Use $commit-push to review the current diff, add missing tests, update docs if needed, and commit and push the changes."
+
+policy:
+  allow_implicit_invocation: true

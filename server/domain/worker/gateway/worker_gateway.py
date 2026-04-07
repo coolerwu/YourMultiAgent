@@ -20,6 +20,14 @@ class WorkerGateway(ABC):
         ...
 
     @abstractmethod
-    async def invoke(self, capability_name: str, params: dict[str, Any]) -> Any:
-        """调用指定能力，返回执行结果"""
+    async def invoke(
+        self,
+        capability_name: str,
+        params: dict[str, Any],
+        context: dict[str, Any] | None = None,
+    ) -> Any:
+        """
+        调用指定能力，返回执行结果。
+        context 用于注入运行时信息，如 {"work_dir": "/abs/path/agentA/"}
+        """
         ...

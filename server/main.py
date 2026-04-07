@@ -5,6 +5,12 @@ FastAPI 应用入口：
 - 注册路由（adapter 层）
 - 托管前端静态文件（web/ 目录）
 - 启动时初始化容器（扫描 @capability）
+路由：
+  agent_router      — /api/agents Prompt 优化
+  agent_ws_router   — /ws/workspaces/{id}/run  WebSocket 执行
+  worker_router     — /api/workers
+  workspace_router  — /api/workspaces
+  worker_ws_router  — /ws/worker  Remote Worker 接入
 """
 
 from pathlib import Path
@@ -14,7 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from server.adapter.agent_controller import router as agent_router
+from server.adapter.agent_ws import router as agent_ws_router
 from server.adapter.worker_controller import router as worker_router
+from server.adapter.worker_ws import router as worker_ws_router
+from server.adapter.workspace_controller import router as workspace_router
 from server.container import init_container
 
 app = FastAPI(title="YourMultiAgent", version="0.1.0")
@@ -29,7 +38,10 @@ app.add_middleware(
 
 # ── API 路由 ──────────────────────────────────────────────────
 app.include_router(agent_router)
+app.include_router(agent_ws_router)    # WebSocket: /ws/workspaces/{id}/run
 app.include_router(worker_router)
+app.include_router(workspace_router)
+app.include_router(worker_ws_router)   # WebSocket: /ws/worker
 
 
 @app.get("/api/health")

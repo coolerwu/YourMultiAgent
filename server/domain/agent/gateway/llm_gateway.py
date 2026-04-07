@@ -7,11 +7,11 @@ domain 层通过此接口获取 LLM 实例，不依赖具体 SDK。
 
 from abc import ABC, abstractmethod
 
-from server.domain.agent.entity.agent_entity import AgentEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, WorkspaceEntity
 
 
 class LLMGateway(ABC):
     @abstractmethod
-    def build(self, agent: AgentEntity):
+    def build(self, agent: AgentEntity, workspace: WorkspaceEntity | None = None):
         """返回 LangChain BaseChatModel 实例"""
         ...

@@ -1,29 +1,64 @@
 """
 infra/llm/llm_factory.py
 
-LLMGateway 的具体实现：根据 AgentEntity 配置构建 LangChain LLM 实例。
-API Key 从环境变量读取：ANTHROPIC_API_KEY / OPENAI_API_KEY。
+LLMGateway 实现：根据 AgentEntity 构建 LangChain LLM 实例。
+支持 Anthropic、OpenAI、以及任意 OpenAI 兼容协议（DeepSeek/Moonshot 等）。
+API Key 优先用 agent 级配置，若节点引用 workspace LLM profile 则先用 profile，再退回环境变量。
 """
 
-from server.domain.agent.entity.agent_entity import AgentEntity, LLMProvider
+from server.domain.agent.entity.agent_entity import AgentEntity, LLMProvider, WorkspaceEntity
 from server.domain.agent.gateway.llm_gateway import LLMGateway
 
 
 class LangChainLLMFactory(LLMGateway):
-    def build(self, agent: AgentEntity):
-        if agent.provider == LLMProvider.ANTHROPIC:
+    def build(self, agent: AgentEntity, workspace: WorkspaceEntity | None = None):
+        provider, model, base_url, api_key = _resolve_llm_config(agent, workspace)
+
+        if provider == LLMProvider.ANTHROPIC:
             from langchain_anthropic import ChatAnthropic
-            return ChatAnthropic(
-                model=agent.model,
-                temperature=agent.temperature,
-                max_tokens=agent.max_tokens,
-            )
-        elif agent.provider == LLMProvider.OPENAI:
+            kwargs = dict(model=model, temperature=agent.temperature, max_tokens=agent.max_tokens)
+            if api_key:
+                kwargs["anthropic_api_key"] = api_key
+            return ChatAnthropic(**kwargs)
+
+        elif provider == LLMProvider.OPENAI:
             from langchain_openai import ChatOpenAI
+            kwargs = dict(model=model, temperature=agent.temperature, max_tokens=agent.max_tokens)
+            if api_key:
+                kwargs["openai_api_key"] = api_key
+            return ChatOpenAI(**kwargs)
+
+        elif provider == LLMProvider.OPENAI_COMPAT:
+            from langchain_openai import ChatOpenAI
+            if not base_url:
+                raise ValueError(f"Agent '{agent.name}' 使用 openai_compat 时必须配置 base_url")
+            # api_key 留空时传 "sk-placeholder"，部分服务不校验 key
+            compat_api_key = api_key or "sk-placeholder"
             return ChatOpenAI(
-                model=agent.model,
+                model=model,
                 temperature=agent.temperature,
                 max_tokens=agent.max_tokens,
+                base_url=base_url,
+                api_key=compat_api_key,
             )
+
         else:
-            raise ValueError(f"不支持的 LLM provider: {agent.provider}")
+            raise ValueError(f"不支持的 LLM provider: {provider}")
+
+
+def _resolve_llm_config(
+    agent: AgentEntity,
+    workspace: WorkspaceEntity | None,
+) -> tuple[LLMProvider, str, str, str]:
+    if workspace and agent.llm_profile_id:
+        profile = next((p for p in workspace.llm_profiles if p.id == agent.llm_profile_id), None)
+        if profile is None:
+            raise ValueError(f"Agent '{agent.name}' 引用了不存在的 LLM 配置: {agent.llm_profile_id}")
+        return (
+            profile.provider,
+            profile.model,
+            agent.base_url or profile.base_url,
+            agent.api_key or profile.api_key,
+        )
+
+    return agent.provider, agent.model, agent.base_url, agent.api_key

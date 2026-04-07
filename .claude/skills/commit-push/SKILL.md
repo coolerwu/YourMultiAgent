@@ -62,6 +62,7 @@ cd web && npm run build
 
 **直接使用 Bash 工具执行，不要把命令打印出来让用户自己跑。**
 
+0. 确认 `.gitignore` 存在，避免 `__pycache__`、`node_modules`、`server/web/` 被提交
 1. 用 Bash 工具按文件/目录 `git add`（禁止 `git add .` 或 `git add -A`）
 2. 根据变更内容自动生成中文 commit message（说明 why，不是 what），用 Bash 工具执行 `git commit`
 3. 用 Bash 工具执行 `git push`
