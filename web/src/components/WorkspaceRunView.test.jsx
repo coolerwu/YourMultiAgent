@@ -142,4 +142,18 @@ describe('WorkspaceRunView', () => {
     expect(await screen.findByText('进入步骤：执行')).toBeInTheDocument()
     expect(await screen.findByTestId('agent-step-worker-1')).toHaveTextContent('Step: 执行')
   })
+
+  it('opens session list in drawer on compact viewport', async () => {
+    window.innerWidth = 800
+    window.dispatchEvent(new Event('resize'))
+    render(<WorkspaceRunView workspace={{ id: 'chat-1', kind: 'chat', name: 'PetTrace', coordinator: { id: 'chat', name: '单聊助手' }, llm_profiles: [] }} />)
+
+    await waitFor(() => {
+      expect(workspaceApiMock.listSessions).toHaveBeenCalledWith('chat-1')
+    })
+
+    expect(screen.getByRole('button', { name: /会话列表/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /会话列表/ }))
+    expect(await screen.findByText('历史会话')).toBeInTheDocument()
+  })
 })
