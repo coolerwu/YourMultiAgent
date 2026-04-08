@@ -4,9 +4,11 @@ tests/app/agent/test_agent_app_service.py
 AgentAppService 单测：mock orchestrator / workspace gateway / llm gateway。
 """
 
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import server.app.agent.agent_app_service as agent_app_service_module
 from server.app.agent.agent_app_service import AgentAppService
 from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
 from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
@@ -207,6 +209,44 @@ async def test_run_workspace_persists_error_message_when_orchestrator_fails(mock
     assert session.messages[-1].role == "error"
     assert session.messages[-1].kind == "error"
     assert session.messages[-1].content == "执行异常: 模型调用失败"
+
+
+@pytest.mark.asyncio
+async def test_run_workspace_fails_when_orchestrator_idle_timeout(monkeypatch, mock_llm_gateway, mock_workspace_gateway):
+    orchestrator = MagicMock()
+
+    async def _run(_workspace, _user_message, _session):
+        yield {"type": "coordinator_start", "node": "coordinator", "node_name": "主控", "actor_id": "coordinator", "actor_name": "主控"}
+        await asyncio.sleep(3600)
+
+    orchestrator.run = _run
+    svc = AgentAppService(orchestrator, mock_llm_gateway, mock_workspace_gateway)
+
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+    monkeypatch.setattr(agent_app_service_module, "_RUN_EVENT_IDLE_TIMEOUT_SECONDS", 0.01)
+
+    async def collect():
+        return [event async for event in svc.run_workspace("ws1", "继续执行")]
+
+    with pytest.raises(ValueError, match="执行超时"):
+        await collect()
+
+    session = workspace.sessions[0]
+    assert session.status == "failed"
+    assert session.messages[-1].role == "error"
+    assert "执行超时" in session.messages[-1].content
 
 
 @pytest.mark.asyncio

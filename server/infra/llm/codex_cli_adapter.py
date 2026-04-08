@@ -78,24 +78,29 @@ class CodexCLIAdapter:
                 args.extend(["-C", self._work_dir])
             args.append(prompt)
 
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self._work_dir or None,
-                env=_build_codex_env(),
-            )
+            process = None
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=self._work_dir or None,
+                    env=_build_codex_env(),
                 )
-            except asyncio.TimeoutError as exc:
-                process.kill()
-                await process.communicate()
-                raise ValueError(
-                    f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒），请检查当前模型配置或登录态。"
-                ) from exc
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError as exc:
+                    await _terminate_process(process)
+                    raise ValueError(
+                        f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒），请检查当前模型配置或登录态。"
+                    ) from exc
+            except asyncio.CancelledError:
+                if process is not None:
+                    await _terminate_process(process)
+                raise
             if process.returncode != 0:
                 raise ValueError(_format_codex_error(stdout.decode("utf-8", errors="ignore"), stderr.decode("utf-8", errors="ignore")))
             if not output_path.exists():
@@ -228,3 +233,13 @@ def _explain_known_codex_error(raw_message: str) -> str:
 def _build_codex_env() -> dict[str, str]:
     env = build_codex_subprocess_env(os.environ)
     return env
+
+
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    process.kill()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=3)
+    except asyncio.TimeoutError:
+        pass

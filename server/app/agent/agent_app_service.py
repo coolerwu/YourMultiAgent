@@ -6,6 +6,7 @@ Agent 应用服务：编排 Command/Query，协调 domain 与 infra。
 新增：以 Workspace 为唯一编排入口运行 Coordinator + Workers；保留 Prompt 优化能力。
 """
 
+import asyncio
 import json
 from typing import AsyncGenerator, Optional
 
@@ -30,6 +31,7 @@ from server.domain.agent.service.session_history import (
 from server.support.app_logging import get_logger, log_ai_error, log_ai_request, log_ai_response
 
 logger = get_logger(__name__)
+_RUN_EVENT_IDLE_TIMEOUT_SECONDS = 180
 
 
 class AgentAppService:
@@ -85,7 +87,11 @@ class AgentAppService:
         pending_done: dict | None = None
 
         try:
-            async for chunk in self._orchestrator.run(workspace, user_message, session):
+            orchestrator_stream = self._orchestrator.run(workspace, user_message, session)
+            async for chunk in _stream_with_idle_timeout(
+                orchestrator_stream,
+                _RUN_EVENT_IDLE_TIMEOUT_SECONDS,
+            ):
                 chunk_type = chunk.get("type")
                 if chunk_type == "done":
                     pending_done = chunk
@@ -589,3 +595,32 @@ def _event_to_content(event: dict) -> str:
     if event_type == "tool_end":
         return f"工具 {event.get('tool', '')} 返回：{event.get('result', '')}"
     return str(event)
+
+
+async def _stream_with_idle_timeout(
+    stream: AsyncGenerator[dict, None],
+    timeout_seconds: int,
+) -> AsyncGenerator[dict, None]:
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(stream.__anext__(), timeout=timeout_seconds)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                await _close_stream_safely(stream)
+                raise ValueError(
+                    f"执行超时：超过 {timeout_seconds} 秒未收到运行事件，已中断本次执行。"
+                ) from exc
+            yield item
+    finally:
+        await _close_stream_safely(stream)
+
+
+async def _close_stream_safely(stream: AsyncGenerator[dict, None]) -> None:
+    try:
+        await stream.aclose()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass

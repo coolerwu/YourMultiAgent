@@ -1,4 +1,10 @@
-from server.infra.llm.codex_cli_adapter import _build_codex_env, _format_codex_error
+import asyncio
+
+import pytest
+from langchain_core.messages import HumanMessage
+
+import server.infra.llm.codex_cli_adapter as codex_cli_adapter
+from server.infra.llm.codex_cli_adapter import CodexCLIAdapter, _build_codex_env, _format_codex_error
 
 
 def test_build_codex_env_removes_openai_auth_vars_even_when_empty(monkeypatch):
@@ -64,3 +70,62 @@ def test_format_codex_error_explains_forbidden_request():
     )
 
     assert "403 Request not allowed" in message
+
+
+class _BlockingProcess:
+    def __init__(self) -> None:
+        self.returncode = None
+        self.killed = False
+        self.wait_called = False
+
+    async def communicate(self):
+        await asyncio.sleep(3600)
+        return b"", b""
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self):
+        self.wait_called = True
+        return self.returncode
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
+    process = _BlockingProcess()
+
+    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 0.01)
+    adapter = CodexCLIAdapter(model="", codex_path="codex")
+
+    with pytest.raises(ValueError, match="Codex CLI 执行超时"):
+        await adapter.ainvoke([HumanMessage(content="hello")])
+
+    assert process.killed is True
+    assert process.wait_called is True
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_cancel_kills_subprocess(monkeypatch):
+    process = _BlockingProcess()
+
+    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 100)
+    adapter = CodexCLIAdapter(model="", codex_path="codex")
+
+    task = asyncio.create_task(adapter.ainvoke([HumanMessage(content="hello")]))
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.killed is True
+    assert process.wait_called is True
