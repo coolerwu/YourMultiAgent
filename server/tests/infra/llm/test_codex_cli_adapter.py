@@ -201,8 +201,9 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
 async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch):
     captured = {}
 
-    async def _fake_create_subprocess_exec(*args, **_kwargs):
+    async def _fake_create_subprocess_exec(*args, **kwargs):
         captured["args"] = list(args)
+        captured["kwargs"] = kwargs
         return _RawProcess(
             "OpenAI Codex v0.118.0\n--------\nuser\nhello\ncodex\n你好\ntokens used\n123\n"
         )
@@ -215,3 +216,4 @@ async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch
     assert result.content == "你好"
     assert "--output-schema" not in captured["args"]
     assert "-o" not in captured["args"]
+    assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL

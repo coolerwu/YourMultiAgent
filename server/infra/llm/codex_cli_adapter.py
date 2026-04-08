@@ -250,6 +250,7 @@ async def _run_codex_exec_with_retry(
                 output_path.unlink()
             process = await asyncio.create_subprocess_exec(
                 *args,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
@@ -313,6 +314,7 @@ async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
         try:
             process = await asyncio.create_subprocess_exec(
                 *args,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
