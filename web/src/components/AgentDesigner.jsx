@@ -41,7 +41,8 @@ const PRESET_MODELS = {
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
 }
-const DEFAULT_CODEX_MODEL = 'gpt-5.4'
+const DEFAULT_CODEX_MODEL = ''
+const DEFAULT_CODEX_MODEL_PLACEHOLDER = '留空则使用 Codex CLI 默认模型'
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
   const modelLabel = data.codex_connection_name || data.llm_profile_name || data.model
@@ -544,8 +545,12 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
               if (getFieldValue('llm_profile_id')) return null
               if (getFieldValue('codex_connection_id')) {
                 return (
-                  <Form.Item name="model" label="Codex 模型" rules={[{ required: true }]}>
-                    <Input placeholder={DEFAULT_CODEX_MODEL} />
+                  <Form.Item
+                    name="model"
+                    label="Codex 模型"
+                    extra="建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写"
+                  >
+                    <Input placeholder={DEFAULT_CODEX_MODEL_PLACEHOLDER} />
                   </Form.Item>
                 )
               }

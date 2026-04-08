@@ -26,7 +26,7 @@ class CodexCLIAdapter:
         tools: list[dict] | None = None,
         work_dir: str = "",
     ) -> None:
-        self._model = model or "gpt-5.4"
+        self._model = (model or "").strip()
         self._codex_path = codex_path or detect_codex_path()
         self._tools = tools or []
         self._work_dir = work_dir
@@ -69,9 +69,9 @@ class CodexCLIAdapter:
                 str(schema_path),
                 "-o",
                 str(output_path),
-                "--model",
-                self._model,
             ]
+            if self._model:
+                args.extend(["--model", self._model])
             if self._work_dir:
                 args.extend(["-C", self._work_dir])
             args.append(prompt)

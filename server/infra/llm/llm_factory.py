@@ -11,6 +11,8 @@ from server.domain.agent.gateway.llm_gateway import LLMGateway
 from server.infra.codex.codex_cli import detect_codex_path, detect_login_status
 from server.infra.llm.codex_cli_adapter import CodexCLIAdapter
 
+LEGACY_DEFAULT_CODEX_MODEL = "gpt-5.4"
+
 
 class LangChainLLMFactory(LLMGateway):
     def build(self, agent: AgentEntity, workspace: WorkspaceEntity | None = None):
@@ -71,7 +73,7 @@ def _resolve_llm_config(
             raise ValueError(f"Agent '{agent.name}' 引用了不存在的 Codex 登录连接: {agent.codex_connection_id}")
         return (
             LLMProvider.OPENAI_CODEX,
-            agent.model or "gpt-5.4",
+            "" if (agent.model or "").strip() == LEGACY_DEFAULT_CODEX_MODEL else (agent.model or "").strip(),
             connection.install_path,
             "",
         )

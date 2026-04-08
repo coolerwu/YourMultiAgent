@@ -1,0 +1,78 @@
+import '@testing-library/jest-dom/vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import AgentDesigner from './AgentDesigner'
+
+const { graphApiMock, workerApiMock } = vi.hoisted(() => ({
+  graphApiMock: {
+    create: vi.fn(),
+    update: vi.fn(),
+    optimizePrompt: vi.fn(),
+  },
+  workerApiMock: {
+    listCapabilities: vi.fn(),
+  },
+}))
+
+vi.mock('@xyflow/react', () => ({
+  Background: () => null,
+  Controls: () => null,
+  Handle: () => null,
+  MiniMap: () => null,
+  Position: { Left: 'left', Right: 'right' },
+  ReactFlow: ({ children }) => <div>{children}</div>,
+  addEdge: (_edge, edges) => edges,
+  useEdgesState: (initial) => [initial, vi.fn(), vi.fn()],
+  useNodesState: (initial) => [initial, vi.fn(), vi.fn()],
+}))
+
+vi.mock('../utils/graphApi', () => ({
+  graphApi: graphApiMock,
+  workerApi: workerApiMock,
+}))
+
+describe('AgentDesigner', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    })
+    Object.defineProperty(window, 'getComputedStyle', {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        getPropertyValue: () => '',
+      })),
+    })
+    workerApiMock.listCapabilities.mockResolvedValue([])
+  })
+
+  it('opens agent editor from add node action', async () => {
+    render(
+      <AgentDesigner
+        graph={null}
+        workspaceId="ws-1"
+        workspaceDefaults={{
+          default_provider: 'anthropic',
+          default_model: 'claude-sonnet-4-6',
+          llm_profiles: [],
+          codex_connections: [{ id: 'codex-1', name: '个人 Codex' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 添加节点' }))
+
+    expect(await screen.findByText('编辑 Agent')).toBeInTheDocument()
+    expect(screen.getByLabelText('Codex 登录连接')).toBeInTheDocument()
+  })
+})
