@@ -55,7 +55,7 @@ ensure_runtime_env() {
 
   echo "▶  安装运行时依赖"
   "$venv_pip" install --upgrade pip
-  "$venv_pip" install --no-cache-dir -e "$app_dir"
+  "$venv_pip" install --no-cache-dir "$app_dir"
   "$venv_pip" install --no-cache-dir "${RUNTIME_PACKAGES[@]}"
 
   if [ ! -x "$venv_python" ]; then
@@ -179,7 +179,7 @@ After=network.target
 Type=simple
 User=$(id -un)
 WorkingDirectory=$DEPLOY_DIR
-ExecStart=$DEPLOY_DIR/run.sh serve-prod $PORT
+ExecStart=/bin/bash $DEPLOY_DIR/run.sh serve-prod $PORT
 Restart=always
 RestartSec=5
 
