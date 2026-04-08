@@ -13,13 +13,15 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  MenuOutlined,
   PlusOutlined,
   RobotOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { Button, Layout, Popconfirm, Skeleton, Space, Tabs, Tooltip, Typography, message } from 'antd'
+import { Button, Drawer, Grid, Layout, Popconfirm, Skeleton, Space, Tabs, Tooltip, Typography, message } from 'antd'
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
+import './Dashboard.css'
 
 const { Sider, Content } = Layout
 const { Text } = Typography
@@ -51,7 +53,7 @@ function buildTabItems(workspace, orchestrationVersion, onOrchestrationSaved) {
       label: '配置',
       children: (
         <Suspense fallback={<TabFallback />}>
-          <div style={{ height: 'calc(100vh - 108px)', overflowY: 'auto' }}>
+          <div className="dashboard-tab-pane dashboard-tab-pane-scroll">
             <WorkspaceOrchestrationEditor
               key={`${workspace?.id ?? 'none'}-${orchestrationVersion}`}
               workspace={workspace}
@@ -66,7 +68,7 @@ function buildTabItems(workspace, orchestrationVersion, onOrchestrationSaved) {
       label: '运行',
       children: (
         <Suspense fallback={<TabFallback />}>
-          <div style={{ height: 'calc(100vh - 108px)', display: 'flex', flexDirection: 'column' }}>
+          <div className="dashboard-tab-pane dashboard-tab-pane-flex">
             <WorkspaceRunView key={`${workspace?.id ?? 'none'}-${orchestrationVersion}-run`} workspace={workspace} />
           </div>
         </Suspense>
@@ -77,7 +79,7 @@ function buildTabItems(workspace, orchestrationVersion, onOrchestrationSaved) {
       label: 'Worker',
       children: (
         <Suspense fallback={<TabFallback />}>
-          <div style={{ height: 'calc(100vh - 108px)', overflowY: 'auto', padding: 16 }}><WorkerStatus /></div>
+          <div className="dashboard-tab-pane dashboard-tab-pane-scroll" style={{ padding: 16 }}><WorkerStatus /></div>
         </Suspense>
       ),
     }] : []),
@@ -89,15 +91,7 @@ function WorkspaceCard({ workspace, active, deleting, onSelect, onEditWorkspace,
   return (
     <div
       onClick={() => onSelect(workspace)}
-      style={{
-        background: active ? '#eff8ff' : '#fff',
-        border: active ? '1px solid #b2ddff' : '1px solid #eceff3',
-        borderRadius: 14,
-        marginBottom: 10,
-        padding: '12px 12px 12px 10px',
-        boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
-        cursor: 'pointer',
-      }}
+      className={`dashboard-panel-card ${active ? 'dashboard-panel-card-active' : ''}`}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div
@@ -169,15 +163,7 @@ function NavCard({ icon, title, subtitle, active, onClick }) {
   return (
     <div
       onClick={onClick}
-      style={{
-        background: active ? '#eff8ff' : '#fff',
-        border: active ? '1px solid #b2ddff' : '1px solid #eceff3',
-        borderRadius: 14,
-        marginBottom: 10,
-        padding: '12px 12px 12px 10px',
-        boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
-        cursor: 'pointer',
-      }}
+      className={`dashboard-panel-card ${active ? 'dashboard-panel-card-active' : ''}`}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div
@@ -213,6 +199,8 @@ function pickDefaultWorkspace(items) {
 }
 
 export default function Dashboard() {
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.md
   const [workspaces, setWorkspaces] = useState([])
   const [activeWorkspace, setActiveWorkspace] = useState(null)
   const [activeTab, setActiveTab] = useState('runner')
@@ -222,6 +210,7 @@ export default function Dashboard() {
   const [orchestrationVersion, setOrchestrationVersion] = useState(0)
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState('')
   const [managerMode, setManagerMode] = useState('workspace')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const loadWorkspaces = async ({ preservePanel = false } = {}) => {
     try {
@@ -273,143 +262,155 @@ export default function Dashboard() {
   const chatSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind === 'chat'), [workspaces])
   const orchestrationSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind !== 'chat'), [workspaces])
 
+  const renderSidebar = () => (
+    <>
+      <div className="dashboard-brand">
+        <Space size={12}>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 14,
+              background: 'linear-gradient(135deg, #eef4ff 0%, #dbeafe 100%)',
+              color: '#1677ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <RobotOutlined style={{ fontSize: 22 }} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: '#101828', lineHeight: 1.1 }}>Agent 智能体</div>
+            <div style={{ fontSize: 12, color: '#667085', marginTop: 3 }}>单主控 + 多 Worker</div>
+          </div>
+        </Space>
+      </div>
+
+      <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>单聊</Text>
+        <Tooltip title="新建单聊目录">
+          <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
+        </Tooltip>
+      </div>
+
+      <div>
+        {chatSpaces.map((workspace) => (
+          <WorkspaceCard
+            key={workspace.id}
+            workspace={workspace}
+            active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
+            deleting={deletingWorkspaceId === workspace.id}
+            onSelect={(ws) => {
+              setActiveWorkspace(ws)
+              setActivePanel('chat')
+              setActiveTab('runner')
+              setMobileNavOpen(false)
+            }}
+            onEditWorkspace={(ws) => {
+              setEditingWorkspace(ws)
+              setManagerMode('chat')
+              setWsModalOpen(true)
+              setMobileNavOpen(false)
+            }}
+            onDeleteWorkspace={handleWorkspaceDelete}
+          />
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>WORKSPACES</Text>
+        <Tooltip title="新建 Workspace">
+          <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
+        </Tooltip>
+      </div>
+
+      <div>
+        {orchestrationSpaces.map((workspace) => (
+          <WorkspaceCard
+            key={workspace.id}
+            workspace={workspace}
+            active={activePanel === 'workspace' && activeWorkspace?.id === workspace.id}
+            deleting={deletingWorkspaceId === workspace.id}
+            onSelect={(ws) => {
+              setActiveWorkspace(ws)
+              setActivePanel('workspace')
+              setActiveTab('runner')
+              setMobileNavOpen(false)
+            }}
+            onEditWorkspace={(ws) => {
+              setEditingWorkspace(ws)
+              setManagerMode('workspace')
+              setWsModalOpen(true)
+              setMobileNavOpen(false)
+            }}
+            onDeleteWorkspace={handleWorkspaceDelete}
+          />
+        ))}
+      </div>
+
+      <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
+        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>PROVIDERS</Text>
+      </div>
+
+      <NavCard
+        icon={<ApiOutlined style={{ fontSize: 18 }} />}
+        title="全局模型连接"
+        subtitle="统一管理 API Provider 和 Codex 登录"
+        active={activePanel === 'providers'}
+        onClick={() => {
+          setActivePanel('providers')
+          setMobileNavOpen(false)
+        }}
+      />
+
+      <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
+        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>SYSTEM</Text>
+      </div>
+
+      <NavCard
+        icon={<SettingOutlined style={{ fontSize: 18 }} />}
+        title="系统设置"
+        subtitle="执行 Update Now 和管理 Codex 运行时"
+        active={activePanel === 'system'}
+        onClick={() => {
+          setActivePanel('system')
+          setMobileNavOpen(false)
+        }}
+      />
+
+      <NavCard
+        icon={<FileTextOutlined style={{ fontSize: 18 }} />}
+        title="应用日志"
+        subtitle="查看 app.log 和 AI 运行日志"
+        active={activePanel === 'app-log'}
+        onClick={() => {
+          setActivePanel('app-log')
+          setMobileNavOpen(false)
+        }}
+      />
+    </>
+  )
+
   return (
-    <Layout style={{ height: '100vh', background: '#f8fafc', overflow: 'hidden' }}>
+    <Layout className="dashboard-layout" style={{ overflow: 'hidden' }}>
       <Sider
         width={320}
         theme="light"
-        style={{
-          height: '100vh',
-          overflowY: 'auto',
-          borderRight: '1px solid #eaecf0',
-          padding: 16,
-          background: '#fcfcfd',
-        }}
+        className="dashboard-sider"
+        style={{ display: isMobile ? 'none' : 'block' }}
       >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 6px 16px',
-            borderBottom: '1px solid #eaecf0',
-            marginBottom: 18,
-          }}
-        >
-          <Space size={12}>
-            <div
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 14,
-                background: 'linear-gradient(135deg, #eef4ff 0%, #dbeafe 100%)',
-                color: '#1677ff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <RobotOutlined style={{ fontSize: 22 }} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 18, color: '#101828', lineHeight: 1.1 }}>Agent 智能体</div>
-              <div style={{ fontSize: 12, color: '#667085', marginTop: 3 }}>单主控 + 多 Worker</div>
-            </div>
-          </Space>
-        </div>
-
-        <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>单聊</Text>
-          <Tooltip title="新建单聊目录">
-            <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
-          </Tooltip>
-        </div>
-
-        <div>
-          {chatSpaces.map((workspace) => (
-            <WorkspaceCard
-              key={workspace.id}
-              workspace={workspace}
-              active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
-              deleting={deletingWorkspaceId === workspace.id}
-              onSelect={(ws) => {
-                setActiveWorkspace(ws)
-                setActivePanel('chat')
-                setActiveTab('runner')
-              }}
-              onEditWorkspace={(ws) => {
-                setEditingWorkspace(ws)
-                setManagerMode('chat')
-                setWsModalOpen(true)
-              }}
-              onDeleteWorkspace={handleWorkspaceDelete}
-            />
-          ))}
-        </div>
-
-        <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>WORKSPACES</Text>
-          <Tooltip title="新建 Workspace">
-            <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
-          </Tooltip>
-        </div>
-
-        <div>
-          {orchestrationSpaces.map((workspace) => (
-            <WorkspaceCard
-              key={workspace.id}
-              workspace={workspace}
-              active={activePanel === 'workspace' && activeWorkspace?.id === workspace.id}
-              deleting={deletingWorkspaceId === workspace.id}
-              onSelect={(ws) => {
-                setActiveWorkspace(ws)
-                setActivePanel('workspace')
-                setActiveTab('runner')
-              }}
-              onEditWorkspace={(ws) => {
-                setEditingWorkspace(ws)
-                setManagerMode('workspace')
-                setWsModalOpen(true)
-              }}
-              onDeleteWorkspace={handleWorkspaceDelete}
-            />
-          ))}
-        </div>
-
-        <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
-          <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>PROVIDERS</Text>
-        </div>
-
-        <NavCard
-          icon={<ApiOutlined style={{ fontSize: 18 }} />}
-          title="全局模型连接"
-          subtitle="统一管理 API Provider 和 Codex 登录"
-          active={activePanel === 'providers'}
-          onClick={() => setActivePanel('providers')}
-        />
-
-        <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
-          <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>SYSTEM</Text>
-        </div>
-
-        <NavCard
-          icon={<SettingOutlined style={{ fontSize: 18 }} />}
-          title="系统设置"
-          subtitle="执行 Update Now 和管理 Codex 运行时"
-          active={activePanel === 'system'}
-          onClick={() => setActivePanel('system')}
-        />
-
-        <NavCard
-          icon={<FileTextOutlined style={{ fontSize: 18 }} />}
-          title="应用日志"
-          subtitle="查看 app.log 和 AI 运行日志"
-          active={activePanel === 'app-log'}
-          onClick={() => setActivePanel('app-log')}
-        />
+        {renderSidebar()}
       </Sider>
 
-      <Content style={{ height: '100vh', overflow: 'hidden', minWidth: 0 }}>
+      <Content className="dashboard-content">
+        {isMobile && (
+          <div className="dashboard-mobile-header">
+            <Button type="text" icon={<MenuOutlined />} onClick={() => setMobileNavOpen(true)} />
+            <Text strong>{activeWorkspace?.name || '控制台'}</Text>
+            <div />
+          </div>
+        )}
         {activePanel === 'providers' ? (
           <Suspense fallback={<TabFallback />}>
             <ProviderManager embedded onSaved={() => loadWorkspaces({ preservePanel: true })} />
@@ -428,7 +429,7 @@ export default function Dashboard() {
             destroyInactiveTabPane
             items={tabItems}
             onChange={setActiveTab}
-            style={{ height: '100vh', padding: '0 18px', background: '#fff' }}
+            className="dashboard-tabs"
           />
         ) : activeWorkspace ? (
           <Tabs
@@ -436,12 +437,22 @@ export default function Dashboard() {
             destroyInactiveTabPane
             items={tabItems}
             onChange={setActiveTab}
-            style={{ height: '100vh', padding: '0 18px', background: '#fff' }}
+            className="dashboard-tabs"
           />
         ) : (
-          <div style={{ height: '100vh', background: '#fff' }} />
+          <div style={{ height: '100dvh', background: '#fff' }} />
         )}
       </Content>
+      <Drawer
+        title="导航"
+        placement="left"
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        width={320}
+        styles={{ body: { padding: 16, background: '#fcfcfd' } }}
+      >
+        {renderSidebar()}
+      </Drawer>
 
       <Suspense fallback={<ModalFallback />}>
         <WorkspaceManager
