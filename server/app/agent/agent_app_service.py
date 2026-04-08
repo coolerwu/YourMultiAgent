@@ -127,8 +127,14 @@ class AgentAppService:
                 yield chunk
 
             session.status = "idle"
-        except Exception:
+        except Exception as exc:
             session.status = "failed"
+            append_session_message(
+                session,
+                role="error",
+                kind="error",
+                content=str(exc),
+            )
             await self._ws_gateway.save(workspace)
             raise
 

@@ -51,7 +51,7 @@ npm install -g @openai/codex --prefix ~/.local
 
 ## Codex 认证冲突说明
 
-后端调用 `codex exec` 时，会清理空的 `OPENAI_*` 认证环境变量，避免它们污染本地 `codex login` 登录态。
+后端调用 `codex exec` 时，会清理显式 `OPENAI_*` 认证环境变量，避免它们污染本地 `codex login` 登录态。
 
 当前已处理的变量包括：
 
@@ -63,4 +63,20 @@ npm install -g @openai/codex --prefix ~/.local
 - `OPENAI_ORGANIZATION`
 - `OPENAI_PROJECT`
 
-仅空值会被移除；有值的变量保持不变。
+这些变量会统一移除，不区分空值还是非空值。
+
+## SOCKS 代理依赖
+
+当前后端 HTTP 客户端依赖为 `httpx[socks]`，以支持通过 SOCKS 代理访问外部服务。
+
+如果运行时出现：
+
+```text
+Using SOCKS proxy, but the 'socksio' package is not installed.
+```
+
+说明当前 Python 环境还是旧依赖，重新执行一次安装即可：
+
+```bash
+pip install -e .
+```

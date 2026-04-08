@@ -26,7 +26,7 @@ class CodexCLIAdapter:
         tools: list[dict] | None = None,
         work_dir: str = "",
     ) -> None:
-        self._model = model or "gpt-5"
+        self._model = model or "gpt-5.4"
         self._codex_path = codex_path or detect_codex_path()
         self._tools = tools or []
         self._work_dir = work_dir

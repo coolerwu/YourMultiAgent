@@ -71,7 +71,7 @@ def _resolve_llm_config(
             raise ValueError(f"Agent '{agent.name}' 引用了不存在的 Codex 登录连接: {agent.codex_connection_id}")
         return (
             LLMProvider.OPENAI_CODEX,
-            agent.model or "gpt-5",
+            agent.model or "gpt-5.4",
             connection.install_path,
             "",
         )

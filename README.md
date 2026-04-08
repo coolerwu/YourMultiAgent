@@ -48,26 +48,7 @@ YourMultiAgent/
 
 ## 快速开始
 
-### 1) 环境准备
-
-- Python `>=3.12`
-- Node.js `>=18`
-
-### 2) 安装依赖
-
-```bash
-# 后端（项目根目录）
-pip install -e .
-
-# 前端
-cd web && npm install
-```
-
-### 3) 启动服务
-
-#### 方式 A：一键生产部署（开源快速部署）
-
-适合服务器首次安装或后续增量更新。先通过 HTTP 下载 `run.sh`，再直接执行：
+推荐直接使用一键部署脚本。首次安装和后续增量更新都优先走这个入口：
 
 ```bash
 curl -O https://raw.githubusercontent.com/coolerwu/YourMultiAgent/main/run.sh
@@ -91,7 +72,31 @@ chmod +x run.sh
 - 前端构建产物 `server/web/` 已进入 Git 仓库，否则远端拉代码后不会拿到最新页面
 - 生产数据必须放在 `~/.yourmultiagent`，不要放进项目目录下的 `data/`
 
-#### 方式 B：直接启动后端（开发常用）
+## 本地开发
+
+### 环境准备
+
+- Python `>=3.12`
+- Node.js `>=18`
+
+### 安装依赖
+
+```bash
+# 后端（项目根目录）
+pip install -e .
+
+# 前端
+cd web && npm install
+```
+
+说明：
+
+- 后端默认会安装 `httpx[socks]`，以支持通过 SOCKS 代理访问外部服务
+- 如果当前虚拟环境是旧版本依赖升级上来的，执行一次 `pip install -e .` 即可补装 `socksio`
+
+### 启动服务
+
+#### 方式 A：直接启动后端（开发常用）
 
 ```bash
 cd server && python main.py

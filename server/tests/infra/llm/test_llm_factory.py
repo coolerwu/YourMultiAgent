@@ -92,3 +92,33 @@ def test_resolve_llm_config_falls_back_to_workspace_defaults():
     assert model == "deepseek-chat"
     assert base_url == "https://api.deepseek.com/v1"
     assert api_key == "sk-demo"
+
+
+def test_resolve_llm_config_defaults_codex_model_to_gpt_5_4():
+    workspace = WorkspaceEntity(
+        id="ws-1",
+        name="demo",
+        work_dir="/tmp/demo",
+        codex_connections=[
+            CodexConnectionEntity(
+                id="codex-1",
+                name="个人 Codex",
+                install_path="/usr/local/bin/codex",
+            )
+        ],
+    )
+    agent = AgentEntity(
+        id="agent-1",
+        name="主控",
+        provider=LLMProvider.ANTHROPIC,
+        model="",
+        system_prompt="你是主控",
+        codex_connection_id="codex-1",
+    )
+
+    provider, model, base_url, api_key = _resolve_llm_config(agent, workspace)
+
+    assert provider == LLMProvider.OPENAI_CODEX
+    assert model == "gpt-5.4"
+    assert base_url == "/usr/local/bin/codex"
+    assert api_key == ""

@@ -172,6 +172,44 @@ async def test_run_workspace_uses_llm_compact_for_long_session(svc, mock_workspa
 
 
 @pytest.mark.asyncio
+async def test_run_workspace_persists_error_message_when_orchestrator_fails(mock_llm_gateway, mock_workspace_gateway):
+    orchestrator = MagicMock()
+
+    async def _run(_workspace, _user_message, _session):
+        raise RuntimeError("执行异常: 模型调用失败")
+        yield  # pragma: no cover
+
+    orchestrator.run = _run
+    svc = AgentAppService(orchestrator, mock_llm_gateway, mock_workspace_gateway)
+
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+
+    async def collect():
+        return [event async for event in svc.run_workspace("ws1", "继续执行")]
+
+    with pytest.raises(RuntimeError, match="模型调用失败"):
+        await collect()
+
+    session = workspace.sessions[0]
+    assert session.status == "failed"
+    assert session.messages[-1].role == "error"
+    assert session.messages[-1].kind == "error"
+    assert session.messages[-1].content == "执行异常: 模型调用失败"
+
+
+@pytest.mark.asyncio
 async def test_optimize_prompt_uses_workspace_profile(svc, mock_llm_gateway, mock_workspace_gateway):
     workspace = WorkspaceEntity(
         id="ws1",
