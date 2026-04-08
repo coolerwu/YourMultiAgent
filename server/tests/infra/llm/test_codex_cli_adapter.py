@@ -220,11 +220,11 @@ async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch
     # 新的 simple 模式使用 shell 管道执行
     assert captured["command_args"][0] == "/bin/bash"
     assert captured["command_args"][1] == "-c"
-    # shell_cmd 应该包含 printf 管道和 codex --no-interactive
+    # shell_cmd 应该包含 printf 管道和 codex exec
     shell_cmd = captured["command_args"][2]
     assert "printf" in shell_cmd
     assert "codex" in shell_cmd
-    assert "--no-interactive" in shell_cmd
+    assert "exec" in shell_cmd
     # 不再使用 stdin PIPE，而是通过 printf 管道传递 prompt
     assert "stdin" not in captured["kwargs"]
     assert captured["kwargs"]["start_new_session"] is True

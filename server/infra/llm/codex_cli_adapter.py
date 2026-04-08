@@ -360,54 +360,15 @@ async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: s
     """
     使用 shell 管道方式调用 Codex CLI，避免 codex exec - 从 stdin 读取时的阻塞问题。
 
-    Codex CLI 的 `exec -` 子命令设计上更适合执行 shell 命令，对自然语言 prompt 的支持有限。
-    改用 `echo "prompt" | codex --no-interactive ...` 的方式，通过 shell 管道传递 prompt。
+    Codex CLI 的 `exec -` 从 Python subprocess.PIPE 读取时容易阻塞。
+    改用 shell 管道 `printf 'prompt' | codex exec ... -` 的方式传递 prompt。
     """
-    import shutil
-
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
 
-    # 构造 codex 命令（去掉 exec 子命令和 - 参数）
-    # 原始 args: [codex_path, "exec", "--skip-git-repo-check", ...]
-    # 新命令: [codex_path, "--no-interactive", ...]
-    codex_path = args[0] if args else "codex"
-    codex_args = [codex_path, "--no-interactive"]
-
-    # 保留其他参数（跳过 "exec" 和 "-"）
-    skip_next = False
-    for i, arg in enumerate(args[1:], 1):
-        if skip_next:
-            skip_next = False
-            continue
-        if arg == "exec":
-            continue
-        if arg == "-":
-            continue
-        if arg in ("--skip-git-repo-check",):
-            codex_args.append(arg)
-            continue
-        if arg in ("--sandbox", "--color"):
-            codex_args.append(arg)
-            skip_next = True
-            if i + 1 < len(args):
-                codex_args.append(args[i + 1])
-            continue
-        if arg in ("--model", "-C"):
-            codex_args.append(arg)
-            skip_next = True
-            if i + 1 < len(args):
-                codex_args.append(args[i + 1])
-            continue
-        if arg == "read-only":
-            continue
-        if arg == "never":
-            continue
-        codex_args.append(arg)
-
-    # 构造 shell 命令: echo "prompt" | codex ...
+    # 构造 shell 命令: printf 'prompt' | codex exec ... -
     # 使用 printf 避免 echo 的跨平台差异，对 prompt 中的特殊字符做转义
     escaped_prompt = prompt.replace("'", "'\"'\"'")
-    shell_cmd = f"printf '%s' '{escaped_prompt}' | {' '.join(shlex.quote(a) for a in codex_args)}"
+    shell_cmd = f"printf '%s' '{escaped_prompt}' | {' '.join(shlex.quote(a) for a in args)}"
 
     for attempt in range(1, attempts + 1):
         process = None
