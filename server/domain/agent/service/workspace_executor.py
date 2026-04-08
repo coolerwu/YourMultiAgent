@@ -161,9 +161,20 @@ class WorkspaceExecutor:
             workspace_root=self._workspace_root,
             max_rounds=_MAX_TOOL_ROUNDS,
         )
+        runtime_messages = build_runtime_messages(
+            session,
+            exclude_latest_user_message=user_message,
+        )
+        logger.info(
+            "agent_run_context workspace=%s node=%s runtime_message_count=%s user_message_chars=%s",
+            self._workspace.id,
+            agent.id,
+            len(runtime_messages),
+            len(user_message or ""),
+        )
         async for event in loop.run([
             SystemMessage(content=_build_agent_system_prompt(agent, capabilities)),
-            *build_runtime_messages(session),
+            *runtime_messages,
             HumanMessage(content=user_message),
         ]):
             yield {

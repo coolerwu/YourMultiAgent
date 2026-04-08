@@ -9,14 +9,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shlex
+import signal
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage
 
 from server.infra.codex.codex_cli import build_codex_subprocess_env, detect_codex_path
+from server.support.app_logging import get_logger
 
 
 def _int_env(name: str, default: int) -> int:
@@ -32,6 +34,7 @@ def _int_env(name: str, default: int) -> int:
 
 _CODEX_EXEC_TIMEOUT_SECONDS = _int_env("YOURMULTIAGENT_CODEX_EXEC_TIMEOUT_SECONDS", 300)
 _CODEX_EXEC_MAX_ATTEMPTS = _int_env("YOURMULTIAGENT_CODEX_EXEC_MAX_ATTEMPTS", 2)
+logger = get_logger(__name__)
 
 
 class CodexCLIAdapter:
@@ -90,7 +93,10 @@ class CodexCLIAdapter:
             return AIMessage(content=content, tool_calls=[])
 
         schema = _build_output_schema(bool(self._tools))
-        with tempfile.TemporaryDirectory(prefix="yourmultiagent-codex-") as temp_dir:
+        # 放在工作目录下，保证 read-only sandbox 也可写；目录名使用随机后缀避免并发冲突。
+        work_dir_path = Path(self._work_dir) if self._work_dir else Path.cwd()
+        work_dir_path.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".yourmultiagent-codex-", dir=str(work_dir_path)) as temp_dir:
             schema_path = Path(temp_dir) / "schema.json"
             output_path = Path(temp_dir) / "output.json"
             schema_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -231,7 +237,14 @@ def _build_codex_env() -> dict[str, str]:
 async def _terminate_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
-    process.kill()
+    pid = getattr(process, "pid", None)
+    if isinstance(pid, int) and pid > 0:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except Exception:
+            process.kill()
+    else:
+        process.kill()
     try:
         await asyncio.wait_for(process.wait(), timeout=3)
     except asyncio.TimeoutError:
@@ -246,16 +259,26 @@ async def _run_codex_exec_with_retry(
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
     for attempt in range(1, attempts + 1):
         process = None
+        started_at = time.monotonic()
         try:
             if output_path.exists():
                 output_path.unlink()
-            process = await asyncio.create_subprocess_shell(
-                shlex.join(args),
+            logger.info(
+                "codex_exec_start mode=structured attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
+                attempt,
+                attempts,
+                _CODEX_EXEC_TIMEOUT_SECONDS,
+                work_dir,
+                len(args),
+            )
+            process = await asyncio.create_subprocess_exec(
+                *args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
+                start_new_session=True,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -263,6 +286,13 @@ async def _run_codex_exec_with_retry(
                     timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
+                logger.warning(
+                    "codex_exec_timeout mode=structured attempt=%s/%s pid=%s elapsed_ms=%s",
+                    attempt,
+                    attempts,
+                    getattr(process, "pid", 0),
+                    int((time.monotonic() - started_at) * 1000),
+                )
                 await _terminate_process(process)
                 if attempt < attempts:
                     continue
@@ -271,9 +301,25 @@ async def _run_codex_exec_with_retry(
                 )
         except asyncio.CancelledError:
             if process is not None:
+                logger.warning(
+                    "codex_exec_cancelled mode=structured attempt=%s/%s pid=%s",
+                    attempt,
+                    attempts,
+                    getattr(process, "pid", 0),
+                )
                 await _terminate_process(process)
             raise
 
+        logger.info(
+            "codex_exec_end mode=structured attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
+            attempt,
+            attempts,
+            getattr(process, "pid", 0),
+            process.returncode,
+            int((time.monotonic() - started_at) * 1000),
+            len(stdout or b""),
+            len(stderr or b""),
+        )
         if process.returncode != 0:
             message = _format_codex_error(
                 stdout.decode("utf-8", errors="ignore"),
@@ -312,14 +358,24 @@ async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
     for attempt in range(1, attempts + 1):
         process = None
+        started_at = time.monotonic()
         try:
-            process = await asyncio.create_subprocess_shell(
-                shlex.join(args),
+            logger.info(
+                "codex_exec_start mode=simple attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
+                attempt,
+                attempts,
+                _CODEX_EXEC_TIMEOUT_SECONDS,
+                work_dir,
+                len(args),
+            )
+            process = await asyncio.create_subprocess_exec(
+                *args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
+                start_new_session=True,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -327,6 +383,13 @@ async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
                     timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
+                logger.warning(
+                    "codex_exec_timeout mode=simple attempt=%s/%s pid=%s elapsed_ms=%s",
+                    attempt,
+                    attempts,
+                    getattr(process, "pid", 0),
+                    int((time.monotonic() - started_at) * 1000),
+                )
                 await _terminate_process(process)
                 if attempt < attempts:
                     continue
@@ -335,9 +398,25 @@ async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
                 )
         except asyncio.CancelledError:
             if process is not None:
+                logger.warning(
+                    "codex_exec_cancelled mode=simple attempt=%s/%s pid=%s",
+                    attempt,
+                    attempts,
+                    getattr(process, "pid", 0),
+                )
                 await _terminate_process(process)
             raise
 
+        logger.info(
+            "codex_exec_end mode=simple attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
+            attempt,
+            attempts,
+            getattr(process, "pid", 0),
+            process.returncode,
+            int((time.monotonic() - started_at) * 1000),
+            len(stdout or b""),
+            len(stderr or b""),
+        )
         stdout_text = stdout.decode("utf-8", errors="ignore")
         stderr_text = stderr.decode("utf-8", errors="ignore")
         if process.returncode != 0:

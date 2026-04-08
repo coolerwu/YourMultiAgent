@@ -135,7 +135,11 @@ def refresh_session_memory(session: ChatSessionEntity) -> list[MemoryItemEntity]
     return session.memory_items
 
 
-def build_runtime_messages(session: ChatSessionEntity) -> list:
+def build_runtime_messages(
+    session: ChatSessionEntity,
+    *,
+    exclude_latest_user_message: str = "",
+) -> list:
     runtime_messages: list = []
     if session.summary.strip():
         runtime_messages.append(
@@ -152,8 +156,22 @@ def build_runtime_messages(session: ChatSessionEntity) -> list:
         )
 
     recent_messages = session.messages[-RECENT_MESSAGE_WINDOW:]
+    skipped_latest_user_id = ""
+    candidate = exclude_latest_user_message.strip()
+    if candidate:
+        for item in reversed(recent_messages):
+            if item.role != "user":
+                continue
+            if item.content.strip() != candidate:
+                continue
+            skipped_latest_user_id = item.id
+            break
+
     for item in recent_messages:
         if item.role not in {"user", "assistant"}:
+            continue
+        if skipped_latest_user_id and item.id == skipped_latest_user_id:
+            skipped_latest_user_id = ""
             continue
         content = item.content.strip()
         if not content:

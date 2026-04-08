@@ -8,6 +8,7 @@ Agent 应用服务：编排 Command/Query，协调 domain 与 infra。
 
 import asyncio
 import json
+import time
 from typing import AsyncGenerator, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -85,6 +86,9 @@ class AgentAppService:
         )
         text_buffers: dict[str, dict[str, str]] = {}
         pending_done: dict | None = None
+        started_at = time.monotonic()
+        first_event_at = 0.0
+        event_count = 0
 
         try:
             orchestrator_stream = self._orchestrator.run(workspace, user_message, session)
@@ -92,7 +96,37 @@ class AgentAppService:
                 orchestrator_stream,
                 _RUN_EVENT_IDLE_TIMEOUT_SECONDS,
             ):
+                event_count += 1
                 chunk_type = chunk.get("type")
+                if first_event_at == 0.0:
+                    first_event_at = time.monotonic()
+                    logger.info(
+                        "workspace_run_first_event workspace=%s session=%s type=%s first_event_ms=%s",
+                        workspace.id,
+                        session.id,
+                        chunk_type,
+                        int((first_event_at - started_at) * 1000),
+                    )
+                if chunk_type == "text":
+                    logger.info(
+                        "workspace_run_event workspace=%s session=%s idx=%s type=text chars=%s elapsed_ms=%s",
+                        workspace.id,
+                        session.id,
+                        event_count,
+                        len(chunk.get("content", "")),
+                        int((time.monotonic() - started_at) * 1000),
+                    )
+                else:
+                    logger.info(
+                        "workspace_run_event workspace=%s session=%s idx=%s type=%s node=%s actor=%s elapsed_ms=%s",
+                        workspace.id,
+                        session.id,
+                        event_count,
+                        chunk_type,
+                        chunk.get("node", ""),
+                        chunk.get("actor_id", ""),
+                        int((time.monotonic() - started_at) * 1000),
+                    )
                 if chunk_type == "done":
                     pending_done = chunk
                     continue
@@ -147,9 +181,11 @@ class AgentAppService:
         except Exception as exc:
             session.status = "failed"
             logger.exception(
-                "workspace_run_failed workspace=%s session=%s error=%s",
+                "workspace_run_failed workspace=%s session=%s event_count=%s elapsed_ms=%s error=%s",
                 workspace.id,
                 session.id,
+                event_count,
+                int((time.monotonic() - started_at) * 1000),
                 exc,
             )
             append_session_message(
@@ -177,9 +213,11 @@ class AgentAppService:
         refresh_session_memory(session)
         await self._ws_gateway.save(workspace)
         logger.info(
-            "workspace_run_end workspace=%s session=%s messages=%s summary_len=%s",
+            "workspace_run_end workspace=%s session=%s events=%s elapsed_ms=%s messages=%s summary_len=%s",
             workspace.id,
             session.id,
+            event_count,
+            int((time.monotonic() - started_at) * 1000),
             session.message_count,
             len(session.summary or ""),
         )
@@ -608,6 +646,10 @@ async def _stream_with_idle_timeout(
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError as exc:
+                logger.warning(
+                    "workspace_stream_idle_timeout timeout_seconds=%s",
+                    timeout_seconds,
+                )
                 await _close_stream_safely(stream)
                 raise ValueError(
                     f"执行超时：超过 {timeout_seconds} 秒未收到运行事件，已中断本次执行。"
