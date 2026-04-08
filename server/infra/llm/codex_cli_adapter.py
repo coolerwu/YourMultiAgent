@@ -15,7 +15,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from server.infra.codex.codex_cli import detect_codex_path
+from server.infra.codex.codex_cli import build_codex_subprocess_env, detect_codex_path
 
 
 class CodexCLIAdapter:
@@ -188,27 +188,31 @@ def _normalize_tool_calls(tool_calls: Any) -> list[dict]:
 
 def _format_codex_error(stdout: str, stderr: str) -> str:
     parts = [part.strip() for part in [stdout, stderr] if part.strip()]
+    raw_message = "\n".join(parts[-2:]) if parts else ""
+    known_message = _explain_known_codex_error(raw_message)
+    if known_message:
+        return known_message
     if not parts:
         return "Codex CLI 执行失败"
-    return "Codex CLI 执行失败：\n" + "\n".join(parts[-2:])
+    return "Codex CLI 执行失败：\n" + raw_message
+
+
+def _explain_known_codex_error(raw_message: str) -> str:
+    lowered = raw_message.lower()
+    if "could not resolve authentication method" in lowered:
+        return (
+            "Codex CLI 执行失败：检测到宿主环境里混入了额外的 OpenAI 鉴权配置，"
+            "导致 ChatGPT 登录态与 API Key/Header 同时生效。当前版本会在下次执行时自动隔离这类环境变量；"
+            "如果问题仍存在，请检查启动后端的 shell 是否额外注入了自定义 OpenAI 请求头。"
+        )
+    if "request not allowed" in lowered and "403" in lowered:
+        return (
+            "Codex CLI 执行失败：当前请求被 OpenAI 拒绝（403 Request not allowed）。"
+            "这通常是因为 Codex 进程继承了错误的 OpenAI/Azure OpenAI 环境配置，或本机登录态本身无权访问当前请求。"
+        )
+    return ""
 
 
 def _build_codex_env() -> dict[str, str]:
-    env = dict(os.environ)
-    env["OTEL_SDK_DISABLED"] = "true"
-
-    # Codex 走 ChatGPT 登录态时，不应继承宿主进程里的显式 OpenAI 鉴权配置。
-    # 否则底层客户端可能同时看到 api_key / auth_token，进而报认证方式冲突。
-    for key in [
-        "OPENAI_API_KEY",
-        "OPENAI_AUTH_TOKEN",
-        "OPENAI_BASE_URL",
-        "OPENAI_API_BASE",
-        "OPENAI_ORG_ID",
-        "OPENAI_ORGANIZATION",
-        "OPENAI_PROJECT",
-    ]:
-        if key in env:
-            env.pop(key, None)
-
+    env = build_codex_subprocess_env(os.environ)
     return env

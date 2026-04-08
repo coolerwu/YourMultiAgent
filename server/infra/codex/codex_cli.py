@@ -16,6 +16,10 @@ from pathlib import Path
 
 
 CODEX_PACKAGE = "@openai/codex"
+CODEX_ENV_DROP_PREFIXES = (
+    "OPENAI_",
+    "AZURE_OPENAI_",
+)
 
 
 @dataclass
@@ -114,32 +118,37 @@ def build_install_manual_command() -> str:
     return f"npm install -g {CODEX_PACKAGE}"
 
 
+def build_codex_subprocess_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
+    """
+    为 Codex CLI 构造干净的子进程环境。
+
+    Codex 走 ChatGPT 登录态时，不应继承宿主进程里显式配置的 OpenAI / Azure OpenAI
+    鉴权和请求路由环境变量；否则 login status 与 exec 可能出现“检测通过、执行报认证冲突
+    或 403”的不一致行为。
+    """
+    env = dict(base_env or os.environ)
+    env["OTEL_SDK_DISABLED"] = "true"
+
+    for key in list(env.keys()):
+        if key.startswith(CODEX_ENV_DROP_PREFIXES):
+            env.pop(key, None)
+
+    return env
+
+
 def run_command(args: list[str], timeout: int = 30, cwd: str = "") -> CommandResult:
     env = os.environ.copy()
     env.setdefault("OTEL_SDK_DISABLED", "true")
     bin_dir = preferred_bin_dir()
     if bin_dir:
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}" if env.get("PATH") else bin_dir
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        cwd=cwd or None,
-        env=env,
-    )
-    return CommandResult(
-        args=args,
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    return run_command_with_env(args, timeout=timeout, cwd=cwd, env=env)
 
 
 def detect_cli_version(codex_path: str) -> str:
     if not codex_path:
         return ""
-    result = run_command([codex_path, "--version"], timeout=15)
+    result = run_command_with_env([codex_path, "--version"], timeout=15, env=build_codex_subprocess_env())
     if result.returncode != 0:
         return ""
     for line in result.combined_output.splitlines():
@@ -155,7 +164,7 @@ def detect_login_status(codex_path: str) -> tuple[str, str]:
     if not codex_path:
         return "unknown", ""
 
-    result = run_command([codex_path, "login", "status"], timeout=20)
+    result = run_command_with_env([codex_path, "login", "status"], timeout=20, env=build_codex_subprocess_env())
     output = result.combined_output
     lowered = output.lower()
     if result.returncode != 0:
@@ -165,3 +174,25 @@ def detect_login_status(codex_path: str) -> tuple[str, str]:
     if "not logged" in lowered or "logged out" in lowered:
         return "disconnected", output
     return "unknown", output
+
+
+def run_command_with_env(
+    args: list[str],
+    timeout: int = 30,
+    cwd: str = "",
+    env: dict[str, str] | None = None,
+) -> CommandResult:
+    result = subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd or None,
+        env=env,
+    )
+    return CommandResult(
+        args=args,
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
