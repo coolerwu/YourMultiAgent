@@ -12,6 +12,7 @@ from server.domain.agent.entity.agent_entity import CodexConnectionEntity
 from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
 from server.infra.codex.codex_cli import (
     build_install_command,
+    build_install_manual_command,
     detect_cli_version,
     detect_codex_path,
     detect_login_status,
@@ -91,7 +92,7 @@ class CodexRuntimeService:
             return CodexActionResult(
                 connection=current,
                 message=current.last_error,
-                manual_command="npm install -g @openai/codex",
+                manual_command=build_install_manual_command(),
             )
 
         result = run_command(build_install_command(), timeout=300)
@@ -101,7 +102,7 @@ class CodexRuntimeService:
         return CodexActionResult(
             connection=refreshed,
             message="Codex CLI 安装完成" if refreshed.install_status == "installed" else "Codex CLI 安装失败",
-            manual_command="" if refreshed.install_status == "installed" else "npm install -g @openai/codex",
+            manual_command="" if refreshed.install_status == "installed" else build_install_manual_command(),
             details=result.combined_output,
         )
 
@@ -113,7 +114,7 @@ class CodexRuntimeService:
             return CodexActionResult(
                 connection=current,
                 message="请先安装 Codex CLI",
-                manual_command="npm install -g @openai/codex",
+                manual_command=build_install_manual_command(),
             )
 
         if current.login_status == "connected":

@@ -45,7 +45,7 @@ async def test_install_connection_returns_manual_command_when_node_missing(monke
 
     result = await svc.install_connection("codex-1")
 
-    assert "npm install -g @openai/codex" in result.manual_command
+    assert "npm install -g @openai/codex --prefix" in result.manual_command
     assert result.connection.install_status == "missing_prerequisite"
 
 

@@ -12,6 +12,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 CODEX_PACKAGE = "@openai/codex"
@@ -51,8 +52,43 @@ def npm_command_name() -> str:
     return "npm.cmd" if os_family() == "windows" else "npm"
 
 
+def preferred_npm_prefix() -> str:
+    if os_family() == "windows":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return str(Path(local_app_data) / "npm")
+        return ""
+    return str(Path.home() / ".local")
+
+
+def preferred_bin_dir() -> str:
+    prefix = preferred_npm_prefix()
+    if not prefix:
+        return ""
+    if os_family() == "windows":
+        return prefix
+    return str(Path(prefix) / "bin")
+
+
+def _candidate_codex_paths() -> list[str]:
+    command = codex_command_name()
+    candidates = []
+    bin_dir = preferred_bin_dir()
+    if bin_dir:
+        candidates.append(str(Path(bin_dir) / command))
+    if os_family() != "windows":
+        candidates.append(str(Path.home() / ".npm-global" / "bin" / command))
+    return candidates
+
+
 def detect_codex_path() -> str:
-    return shutil.which(codex_command_name()) or ""
+    found = shutil.which(codex_command_name())
+    if found:
+        return found
+    for candidate in _candidate_codex_paths():
+        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return ""
 
 
 def detect_node_path() -> str:
@@ -64,12 +100,26 @@ def detect_npm_path() -> str:
 
 
 def build_install_command() -> list[str]:
-    return [npm_command_name(), "install", "-g", CODEX_PACKAGE]
+    prefix = preferred_npm_prefix()
+    cmd = [npm_command_name(), "install", "-g", CODEX_PACKAGE]
+    if prefix:
+        cmd.extend(["--prefix", prefix])
+    return cmd
+
+
+def build_install_manual_command() -> str:
+    prefix = preferred_npm_prefix()
+    if prefix:
+        return f"npm install -g {CODEX_PACKAGE} --prefix {prefix}"
+    return f"npm install -g {CODEX_PACKAGE}"
 
 
 def run_command(args: list[str], timeout: int = 30, cwd: str = "") -> CommandResult:
     env = os.environ.copy()
     env.setdefault("OTEL_SDK_DISABLED", "true")
+    bin_dir = preferred_bin_dir()
+    if bin_dir:
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}" if env.get("PATH") else bin_dir
     result = subprocess.run(
         args,
         capture_output=True,
