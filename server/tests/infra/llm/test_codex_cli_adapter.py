@@ -1,4 +1,6 @@
 import asyncio
+import json
+from pathlib import Path
 
 import pytest
 from langchain_core.messages import HumanMessage
@@ -91,6 +93,23 @@ class _BlockingProcess:
         return self.returncode
 
 
+class _SuccessProcess:
+    def __init__(self, output_path: Path, payload: dict | None = None) -> None:
+        self.returncode = 0
+        self._output_path = output_path
+        self._payload = payload or {"content": "ok"}
+
+    async def communicate(self):
+        self._output_path.write_text(json.dumps(self._payload, ensure_ascii=False), encoding="utf-8")
+        return b"", b""
+
+    def kill(self) -> None:  # pragma: no cover - success path should not kill
+        self.returncode = -9
+
+    async def wait(self):  # pragma: no cover - success path should not wait
+        return self.returncode
+
+
 @pytest.mark.asyncio
 async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
     process = _BlockingProcess()
@@ -129,3 +148,27 @@ async def test_codex_adapter_cancel_kills_subprocess(monkeypatch):
 
     assert process.killed is True
     assert process.wait_called is True
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
+    first = _BlockingProcess()
+    calls = {"count": 0}
+
+    async def _fake_create_subprocess_exec(*args, **_kwargs):
+        calls["count"] += 1
+        output_path = Path(args[args.index("-o") + 1])
+        if calls["count"] == 1:
+            return first
+        return _SuccessProcess(output_path, payload={"content": "第二次成功"})
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_MAX_ATTEMPTS", 2)
+    adapter = CodexCLIAdapter(model="", codex_path="codex")
+
+    result = await adapter.ainvoke([HumanMessage(content="hello")])
+
+    assert calls["count"] == 2
+    assert first.killed is True
+    assert result.content == "第二次成功"

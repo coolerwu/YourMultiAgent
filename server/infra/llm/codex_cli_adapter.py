@@ -17,7 +17,20 @@ from langchain_core.messages import AIMessage
 
 from server.infra.codex.codex_cli import build_codex_subprocess_env, detect_codex_path
 
-_CODEX_EXEC_TIMEOUT_SECONDS = 120
+
+def _int_env(name: str, default: int) -> int:
+    raw = (os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
+_CODEX_EXEC_TIMEOUT_SECONDS = _int_env("YOURMULTIAGENT_CODEX_EXEC_TIMEOUT_SECONDS", 300)
+_CODEX_EXEC_MAX_ATTEMPTS = _int_env("YOURMULTIAGENT_CODEX_EXEC_MAX_ATTEMPTS", 2)
 
 
 class CodexCLIAdapter:
@@ -78,41 +91,7 @@ class CodexCLIAdapter:
                 args.extend(["-C", self._work_dir])
             args.append(prompt)
 
-            process = None
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *args,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=self._work_dir or None,
-                    env=_build_codex_env(),
-                )
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(),
-                        timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError as exc:
-                    await _terminate_process(process)
-                    raise ValueError(
-                        f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒），请检查当前模型配置或登录态。"
-                    ) from exc
-            except asyncio.CancelledError:
-                if process is not None:
-                    await _terminate_process(process)
-                raise
-            if process.returncode != 0:
-                raise ValueError(_format_codex_error(stdout.decode("utf-8", errors="ignore"), stderr.decode("utf-8", errors="ignore")))
-            if not output_path.exists():
-                raise ValueError("Codex CLI 未生成最终输出")
-
-            raw = output_path.read_text(encoding="utf-8").strip()
-            if not raw:
-                raise ValueError("Codex CLI 返回了空结果")
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Codex CLI 返回了不可解析结果: {raw}") from exc
+            data = await _run_codex_exec_with_retry(args, output_path, self._work_dir or "")
 
         return AIMessage(
             content=str(data.get("content", "")).strip(),
@@ -243,3 +222,72 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         await asyncio.wait_for(process.wait(), timeout=3)
     except asyncio.TimeoutError:
         pass
+
+
+async def _run_codex_exec_with_retry(
+    args: list[str],
+    output_path: Path,
+    work_dir: str,
+) -> dict[str, Any]:
+    attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
+    for attempt in range(1, attempts + 1):
+        process = None
+        try:
+            if output_path.exists():
+                output_path.unlink()
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=work_dir or None,
+                env=_build_codex_env(),
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                await _terminate_process(process)
+                if attempt < attempts:
+                    continue
+                raise ValueError(
+                    f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒，重试 {attempts} 次仍失败），请检查当前模型配置或登录态。"
+                )
+        except asyncio.CancelledError:
+            if process is not None:
+                await _terminate_process(process)
+            raise
+
+        if process.returncode != 0:
+            message = _format_codex_error(
+                stdout.decode("utf-8", errors="ignore"),
+                stderr.decode("utf-8", errors="ignore"),
+            )
+            if attempt < attempts and _is_retryable_codex_error(message):
+                continue
+            raise ValueError(message)
+
+        if not output_path.exists():
+            if attempt < attempts:
+                continue
+            raise ValueError("Codex CLI 未生成最终输出")
+
+        raw = output_path.read_text(encoding="utf-8").strip()
+        if not raw:
+            if attempt < attempts:
+                continue
+            raise ValueError("Codex CLI 返回了空结果")
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            if attempt < attempts:
+                continue
+            raise ValueError(f"Codex CLI 返回了不可解析结果: {raw}")
+
+    raise ValueError("Codex CLI 执行失败")
+
+
+def _is_retryable_codex_error(message: str) -> bool:
+    lowered = (message or "").lower()
+    return "timeout" in lowered or "temporarily unavailable" in lowered
