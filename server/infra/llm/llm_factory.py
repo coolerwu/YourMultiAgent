@@ -67,7 +67,7 @@ def _resolve_llm_config(
     agent: AgentEntity,
     workspace: WorkspaceEntity | None,
 ) -> tuple[LLMProvider, str, str, str]:
-    if workspace and agent.codex_connection_id:
+    if workspace and agent.provider == LLMProvider.OPENAI_CODEX and agent.codex_connection_id:
         connection = next((item for item in workspace.codex_connections if item.id == agent.codex_connection_id), None)
         if connection is None:
             raise ValueError(f"Agent '{agent.name}' 引用了不存在的 Codex 登录连接: {agent.codex_connection_id}")

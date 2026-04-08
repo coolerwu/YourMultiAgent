@@ -22,7 +22,7 @@ def test_llm_factory_builds_codex_adapter(monkeypatch):
     agent = AgentEntity(
         id="agent-1",
         name="主控",
-        provider=LLMProvider.ANTHROPIC,
+        provider=LLMProvider.OPENAI_CODEX,
         model="gpt-5",
         system_prompt="你是主控",
         codex_connection_id="codex-1",
@@ -53,7 +53,7 @@ def test_llm_factory_rejects_unlogged_codex(monkeypatch):
     agent = AgentEntity(
         id="agent-1",
         name="主控",
-        provider=LLMProvider.ANTHROPIC,
+        provider=LLMProvider.OPENAI_CODEX,
         model="gpt-5",
         system_prompt="你是主控",
         codex_connection_id="codex-1",
@@ -110,7 +110,7 @@ def test_resolve_llm_config_treats_legacy_default_codex_model_as_unset():
     agent = AgentEntity(
         id="agent-1",
         name="主控",
-        provider=LLMProvider.ANTHROPIC,
+        provider=LLMProvider.OPENAI_CODEX,
         model="",
         system_prompt="你是主控",
         codex_connection_id="codex-1",
@@ -140,7 +140,7 @@ def test_resolve_llm_config_keeps_explicit_codex_model():
     agent = AgentEntity(
         id="agent-1",
         name="主控",
-        provider=LLMProvider.ANTHROPIC,
+        provider=LLMProvider.OPENAI_CODEX,
         model="gpt-5",
         system_prompt="你是主控",
         codex_connection_id="codex-1",
@@ -151,4 +151,36 @@ def test_resolve_llm_config_keeps_explicit_codex_model():
     assert provider == LLMProvider.OPENAI_CODEX
     assert model == "gpt-5"
     assert base_url == "/usr/local/bin/codex"
+    assert api_key == ""
+
+
+def test_resolve_llm_config_ignores_stale_codex_connection_when_provider_is_llm():
+    workspace = WorkspaceEntity(
+        id="ws-1",
+        name="demo",
+        work_dir="/tmp/demo",
+        default_provider=LLMProvider.ANTHROPIC,
+        default_model="claude-sonnet-4-6",
+        codex_connections=[
+            CodexConnectionEntity(
+                id="codex-1",
+                name="个人 Codex",
+                install_path="/usr/local/bin/codex",
+            )
+        ],
+    )
+    agent = AgentEntity(
+        id="agent-1",
+        name="单聊助手",
+        provider=LLMProvider.ANTHROPIC,
+        model="",
+        system_prompt="你是助手",
+        codex_connection_id="codex-1",
+    )
+
+    provider, model, base_url, api_key = _resolve_llm_config(agent, workspace)
+
+    assert provider == LLMProvider.ANTHROPIC
+    assert model == "claude-sonnet-4-6"
+    assert base_url == ""
     assert api_key == ""

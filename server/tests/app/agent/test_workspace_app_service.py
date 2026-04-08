@@ -86,6 +86,7 @@ async def test_create_chat_workspace_uses_dir_name_and_chat_agent():
     assert ws.work_dir.endswith("/workspaces/pettrace") or ws.work_dir.endswith("\\workspaces\\pettrace")
     assert ws.coordinator is not None
     assert ws.coordinator.name == "单聊助手"
+    assert ws.coordinator.work_subdir == ""
 
 
 @pytest.mark.asyncio

@@ -315,7 +315,7 @@ def _default_chat_agent(provider: LLMProvider, model: str) -> AgentEntity:
             "不要虚构已执行的操作；工具不足时直接说明。"
         ),
         tools=[],
-        work_subdir="chat",
+        work_subdir="",
     )
 
 

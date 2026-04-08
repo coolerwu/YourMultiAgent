@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
 from server.domain.agent.service.workspace_executor import WorkspaceExecutor, _build_agent_system_prompt
 from server.domain.worker.entity.capability_entity import CapabilityEntity
 
@@ -160,3 +160,39 @@ async def test_workspace_executor_injects_browser_guidance_into_system_prompt(tm
     system_messages = [batch[0].content for batch in llm.seen_messages if batch]
     assert any("工具使用约束" in item for item in system_messages)
     assert any("browser_close" in item for item in system_messages)
+
+
+@pytest.mark.asyncio
+async def test_chat_workspace_uses_workspace_root_as_work_dir(tmp_path):
+    workspace = WorkspaceEntity(
+        id="ws-chat",
+        name="Chat Demo",
+        work_dir=str(tmp_path),
+        kind=WorkspaceKind.CHAT,
+        coordinator=AgentEntity(
+            id="chat",
+            name="单聊助手",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是单聊助手",
+            work_subdir="chat",
+        ),
+        workers=[],
+    )
+    worker_gateway = MagicMock()
+    worker_gateway.list_capabilities.return_value = []
+    worker_gateway.invoke = AsyncMock()
+    llm_factory = MagicMock()
+    llm_factory.build.return_value = FakeLLM()
+
+    executor = WorkspaceExecutor(workspace, worker_gateway, llm_factory)
+    session = ChatSessionEntity(
+        id="session-chat",
+        title="测试会话",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    _ = [event async for event in executor.run("你好", session)]
+
+    assert (tmp_path / "shared").exists()
+    assert not (tmp_path / "chat").exists()

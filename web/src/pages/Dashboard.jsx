@@ -11,6 +11,7 @@ import {
   ApiOutlined,
   CommentOutlined,
   DeleteOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
   PlusOutlined,
   RobotOutlined,
@@ -23,6 +24,7 @@ import { workspaceApi } from '../utils/workspaceApi'
 const { Sider, Content } = Layout
 const { Text } = Typography
 const ProviderManager = lazy(() => import('../components/ProviderManager'))
+const AppLogViewer = lazy(() => import('../components/AppLogViewer'))
 const SystemSettings = lazy(() => import('../components/SystemSettings'))
 const WorkerStatus = lazy(() => import('../components/WorkerStatus'))
 const WorkspaceManager = lazy(() => import('../components/WorkspaceManager'))
@@ -394,9 +396,17 @@ export default function Dashboard() {
         <NavCard
           icon={<SettingOutlined style={{ fontSize: 18 }} />}
           title="系统设置"
-          subtitle="执行 Update Now 和查看系统级状态"
+          subtitle="执行 Update Now 和管理 Codex 运行时"
           active={activePanel === 'system'}
           onClick={() => setActivePanel('system')}
+        />
+
+        <NavCard
+          icon={<FileTextOutlined style={{ fontSize: 18 }} />}
+          title="应用日志"
+          subtitle="查看 app.log 和 AI 运行日志"
+          active={activePanel === 'app-log'}
+          onClick={() => setActivePanel('app-log')}
         />
       </Sider>
 
@@ -404,6 +414,10 @@ export default function Dashboard() {
         {activePanel === 'providers' ? (
           <Suspense fallback={<TabFallback />}>
             <ProviderManager embedded onSaved={() => loadWorkspaces({ preservePanel: true })} />
+          </Suspense>
+        ) : activePanel === 'app-log' ? (
+          <Suspense fallback={<TabFallback />}>
+            <AppLogViewer />
           </Suspense>
         ) : activePanel === 'system' ? (
           <Suspense fallback={<TabFallback />}>

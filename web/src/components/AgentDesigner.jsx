@@ -49,7 +49,23 @@ const MODEL_RUNTIME_OPTIONS = [
 ]
 
 function resolveRuntimeType(agent) {
-  return agent?.codex_connection_id ? 'codex' : 'llm'
+  return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
+}
+
+function normalizeAgentForRuntime(agent) {
+  if (agent.provider === 'openai_codex') {
+    return {
+      ...agent,
+      llm_profile_id: '',
+      base_url: '',
+      api_key: '',
+    }
+  }
+  return {
+    ...agent,
+    codex_connection_id: '',
+    llm_profile_id: '',
+  }
 }
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
@@ -279,12 +295,11 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
     nodeForm.validateFields().then(vals => {
       const currentNode = nodes.find(n => n.id === nodeModal.nodeId)
       const currentData = currentNode?.data ?? {}
-      const nextData = {
+      const nextData = normalizeAgentForRuntime({
         ...currentData,
         ...vals,
-      }
+      })
       delete nextData.runtime_type
-      const profile = llmProfiles.find(item => item.id === vals.llm_profile_id)
       const codexConnection = codexConnections.find(item => item.id === vals.codex_connection_id)
       setNodes(ns => ns.map(n =>
         n.id === nodeModal.nodeId
@@ -292,7 +307,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             ...n,
             data: {
               ...nextData,
-              llm_profile_name: profile?.name ?? '',
+              llm_profile_name: '',
               codex_connection_name: codexConnection?.name ?? '',
             },
           }
@@ -519,19 +534,25 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
               onChange={(value) => {
                 if (value === 'codex') {
                   nodeForm.setFieldsValue({
-                    llm_profile_id: '',
+                    provider: 'openai_codex',
                     model: DEFAULT_CODEX_MODEL,
+                    llm_profile_id: '',
+                    base_url: '',
+                    api_key: '',
                   })
                   return
                 }
-                nodeForm.setFieldValue('codex_connection_id', '')
+                nodeForm.setFieldsValue({
+                  provider: workspaceDefaults?.default_provider ?? 'anthropic',
+                  codex_connection_id: '',
+                  llm_profile_id: '',
+                })
               }}
             />
           </Form.Item>
 
           <Form.Item noStyle shouldUpdate={(p, c) => (
             p.runtime_type !== c.runtime_type
-            || p.llm_profile_id !== c.llm_profile_id
             || p.codex_connection_id !== c.codex_connection_id
             || p.provider !== c.provider
           )}>
@@ -567,61 +588,44 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
               const provider = getFieldValue('provider')
               return (
                 <>
-                  <Form.Item
-                    name="llm_profile_id"
-                    label="通用 LLM 配置"
-                    extra="引用当前 Workspace 预定义的接口和 Token；留空则使用节点自定义配置"
-                  >
-                    <Select
-                      allowClear
-                      placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
-                    >
-                      {llmProfiles.map(profile => (
-                        <Option key={profile.id} value={profile.id}>{profile.name}</Option>
-                      ))}
-                    </Select>
-                  </Form.Item>
+                  <>
+                    <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+                      <Select>
+                        {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+                      </Select>
+                    </Form.Item>
 
-                  {getFieldValue('llm_profile_id') ? null : (
-                    <>
-                      <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+                    <Form.Item name="model" label="模型" rules={[{ required: true }]}>
+                      {provider === 'openai_compat' ? (
+                        <Input placeholder="例如：deepseek-chat" />
+                      ) : (
                         <Select>
-                          {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+                          {(PRESET_MODELS[provider] ?? []).map(m =>
+                            <Option key={m} value={m}>{m}</Option>
+                          )}
                         </Select>
-                      </Form.Item>
-
-                      <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                        {provider === 'openai_compat' ? (
-                          <Input placeholder="例如：deepseek-chat" />
-                        ) : (
-                          <Select>
-                            {(PRESET_MODELS[provider] ?? []).map(m =>
-                              <Option key={m} value={m}>{m}</Option>
-                            )}
-                          </Select>
-                        )}
-                      </Form.Item>
-
-                      {provider === 'openai_compat' && (
-                        <>
-                          <Form.Item
-                            name="base_url"
-                            label="Base URL"
-                            rules={[{ required: true, message: '请输入 base_url' }]}
-                          >
-                            <Input placeholder="https://api.deepseek.com/v1" />
-                          </Form.Item>
-                          <Form.Item
-                            name="api_key"
-                            label="API Key（选填）"
-                            extra="留空则使用 Workspace 或环境变量中的 key"
-                          >
-                            <Input.Password placeholder="sk-..." />
-                          </Form.Item>
-                        </>
                       )}
-                    </>
-                  )}
+                    </Form.Item>
+
+                    {provider === 'openai_compat' && (
+                      <>
+                        <Form.Item
+                          name="base_url"
+                          label="Base URL"
+                          rules={[{ required: true, message: '请输入 base_url' }]}
+                        >
+                          <Input placeholder="https://api.deepseek.com/v1" />
+                        </Form.Item>
+                        <Form.Item
+                          name="api_key"
+                          label="API Key（选填）"
+                          extra="留空则使用 Workspace 或环境变量中的 key"
+                        >
+                          <Input.Password placeholder="sk-..." />
+                        </Form.Item>
+                      </>
+                    )}
+                  </>
                 </>
               )
             }}

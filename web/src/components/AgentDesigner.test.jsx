@@ -75,6 +75,8 @@ describe('AgentDesigner', () => {
     expect(await screen.findByText('编辑 Agent')).toBeInTheDocument()
     expect(screen.getByLabelText('模型类型')).toBeInTheDocument()
     expect(screen.queryByLabelText('Codex 登录连接')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Provider')).toBeInTheDocument()
+    expect(screen.queryByText('通用 LLM 配置')).not.toBeInTheDocument()
 
     fireEvent.mouseDown(screen.getByLabelText('模型类型'))
     fireEvent.click(await screen.findByText('Codex'))

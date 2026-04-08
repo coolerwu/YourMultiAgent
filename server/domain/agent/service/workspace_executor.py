@@ -130,7 +130,7 @@ class WorkspaceExecutor:
         llm = self._llm_factory.build(agent, self._workspace)
         capabilities = _build_capabilities(agent.tools, self._worker_gateway)
         tools = [item.to_tool_schema() for item in capabilities]
-        work_dir = _resolve_agent_work_dir(self._workspace_root, agent.resolved_work_subdir())
+        work_dir = _resolve_agent_work_dir(self._workspace, self._workspace_root, agent)
         Path(work_dir).mkdir(parents=True, exist_ok=True)
 
         yield {
@@ -203,7 +203,10 @@ def _resolve_workspace_root(workspace: WorkspaceEntity, base_work_dir: str) -> s
     return str(Path(".").resolve())
 
 
-def _resolve_agent_work_dir(workspace_root: str, subdir: str) -> str:
+def _resolve_agent_work_dir(workspace: WorkspaceEntity, workspace_root: str, agent: AgentEntity) -> str:
+    if workspace.kind == WorkspaceKind.CHAT:
+        return str(Path(workspace_root).resolve())
+    subdir = agent.resolved_work_subdir()
     return str((Path(workspace_root) / subdir).resolve())
 
 

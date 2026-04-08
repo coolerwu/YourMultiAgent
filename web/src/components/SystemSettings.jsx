@@ -1,10 +1,9 @@
-import { FileTextOutlined, LoginOutlined, ReloadOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
+import { LoginOutlined, ReloadOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
 import { Alert, Button, Card, Popconfirm, Space, Typography, message } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
 
 const { Text } = Typography
-const APP_LOG_LINES = 300
 
 export default function SystemSettings() {
   const hasTriggeredReloadRef = useRef(false)
@@ -12,14 +11,6 @@ export default function SystemSettings() {
   const [codexConnections, setCodexConnections] = useState([])
   const [codexActionHints, setCodexActionHints] = useState({})
   const [runningCodexActionId, setRunningCodexActionId] = useState('')
-  const [appLog, setAppLog] = useState({
-    filename: 'app.log',
-    path: '',
-    content: '',
-    line_count: 0,
-    exists: false,
-  })
-  const [appLogLoading, setAppLogLoading] = useState(false)
   const [updateStatus, setUpdateStatus] = useState({
     status: 'idle',
     logs: [],
@@ -29,13 +20,6 @@ export default function SystemSettings() {
 
   useEffect(() => {
     loadData()
-  }, [])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      loadAppLog({ silent: true })
-    }, 5000)
-    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -59,28 +43,14 @@ export default function SystemSettings() {
 
   const loadData = async () => {
     try {
-      const [status, settings, logResult] = await Promise.all([
+      const [status, settings] = await Promise.all([
         workspaceApi.getUpdateNowStatus(),
         workspaceApi.getProviderSettings(),
-        workspaceApi.getAppLog(APP_LOG_LINES),
       ])
       setUpdateStatus(status)
       setCodexConnections(settings.codex_connections ?? [])
-      setAppLog(logResult)
     } catch (e) {
       message.error(e.message)
-    }
-  }
-
-  const loadAppLog = async ({ silent = false } = {}) => {
-    if (!silent) setAppLogLoading(true)
-    try {
-      const result = await workspaceApi.getAppLog(APP_LOG_LINES)
-      setAppLog(result)
-    } catch (e) {
-      if (!silent) message.error(e.message)
-    } finally {
-      if (!silent) setAppLogLoading(false)
     }
   }
 
@@ -300,63 +270,6 @@ export default function SystemSettings() {
                 </Space>
               </Card>
             ))}
-          </Space>
-        </Card>
-
-        <div style={{ height: 16 }} />
-
-        <Card
-          title={(
-            <Space size={8}>
-              <FileTextOutlined />
-              <span>应用日志</span>
-            </Space>
-          )}
-          extra={(
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              loading={appLogLoading}
-              onClick={() => loadAppLog()}
-            >
-              刷新日志
-            </Button>
-          )}
-        >
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Text type="secondary">
-              当前只保留一个应用日志文件：{appLog.filename || 'app.log'}
-              {appLog.path ? `（${appLog.path}）` : ''}
-            </Text>
-            <Text type="secondary">
-              展示最近 {APP_LOG_LINES} 行，当前文件总行数：{appLog.line_count ?? 0}
-            </Text>
-            {!appLog.exists ? (
-              <Alert
-                type="info"
-                showIcon
-                message="app.log 尚未生成"
-                description="当服务启动并产生日志后，这里会直接展示统一应用日志。"
-              />
-            ) : (
-              <pre
-                data-testid="system-app-log"
-                style={{
-                  margin: 0,
-                  padding: 12,
-                  minHeight: 220,
-                  maxHeight: 420,
-                  overflow: 'auto',
-                  background: '#0f172a',
-                  color: '#e2e8f0',
-                  borderRadius: 8,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {appLog.content || 'app.log 当前为空'}
-              </pre>
-            )}
           </Space>
         </Card>
       </div>

@@ -21,6 +21,7 @@ const { workspaceApiMock } = vi.hoisted(() => ({
     run: vi.fn(),
     updateOrchestration: vi.fn(),
     getProviderSettings: vi.fn(),
+    getAppLog: vi.fn(),
     updateProviderSettings: vi.fn(),
     getCodexRuntimeSummary: vi.fn(),
     startUpdateNow: vi.fn(),
@@ -114,6 +115,13 @@ describe('Dashboard', () => {
       steps: [],
       error: '',
     })
+    workspaceApiMock.getAppLog.mockResolvedValue({
+      filename: 'app.log',
+      path: '/tmp/app.log',
+      content: '2026-04-08 10:00:00 [INFO] app - ai_request',
+      line_count: 12,
+      exists: true,
+    })
   })
 
   it('opens chat workspace on runner tab by default', async () => {
@@ -142,5 +150,18 @@ describe('Dashboard', () => {
     expect(await screen.findByText('单聊助手')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /编\s*辑/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '保存编排配置' })).toBeInTheDocument()
+  })
+
+  it('shows app log as a sibling panel of system settings', async () => {
+    render(<Dashboard />)
+
+    await waitFor(() => {
+      expect(workspaceApiMock.list).toHaveBeenCalled()
+    })
+
+    fireEvent.click(await screen.findByText('应用日志'))
+
+    expect(await screen.findByText(/当前只保留一个应用日志文件：app\.log/)).toBeInTheDocument()
+    expect(await screen.findByTestId('system-app-log')).toHaveTextContent('ai_request')
   })
 })

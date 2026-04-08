@@ -53,11 +53,11 @@ function emptyAgent(defaults, role) {
     temperature: 0.7,
     max_tokens: 4096,
     tools: [],
-    llm_profile_id: defaults?.llm_profiles?.[0]?.id ?? '',
+    llm_profile_id: '',
     codex_connection_id: '',
     base_url: '',
     api_key: '',
-    work_subdir: role === 'coordinator' ? (isChat ? 'chat' : 'coordinator') : '',
+    work_subdir: role === 'coordinator' ? (isChat ? '' : 'coordinator') : '',
     order: 0,
   }
 }
@@ -75,7 +75,33 @@ function normalizeWorkerOrder(items = []) {
 }
 
 function resolveRuntimeType(agent) {
-  return agent?.codex_connection_id ? 'codex' : 'llm'
+  return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
+}
+
+function normalizeAgentForRuntime(agent) {
+  if (agent.provider === 'openai_codex') {
+    return {
+      ...agent,
+      llm_profile_id: '',
+      base_url: '',
+      api_key: '',
+    }
+  }
+  return {
+    ...agent,
+    codex_connection_id: '',
+    llm_profile_id: '',
+  }
+}
+
+function normalizeAgentForWorkspace(agent, workspace, role) {
+  if (workspace?.kind === 'chat' && role === 'coordinator') {
+    return {
+      ...agent,
+      work_subdir: '',
+    }
+  }
+  return agent
 }
 
 export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
@@ -100,7 +126,6 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     reason: '',
   })
   const [form] = Form.useForm()
-  const llmProfiles = workspace?.llm_profiles ?? []
   const codexConnections = workspace?.codex_connections ?? []
 
   useEffect(() => {
@@ -135,10 +160,10 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     const baseAgent = editing.role === 'coordinator'
       ? coordinator
       : workers[editing.index] ?? emptyAgent(workspace, 'worker')
-    const nextAgent = {
+    const nextAgent = normalizeAgentForWorkspace(normalizeAgentForRuntime({
       ...baseAgent,
       ...values,
-    }
+    }), workspace, editing.role)
     delete nextAgent.runtime_type
     if (editing.role === 'coordinator') {
       setCoordinator(nextAgent)
@@ -280,7 +305,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
           <Space direction="vertical" size={6} style={{ width: '100%' }}>
             <Text strong>{coordinator.name}</Text>
             <Text type="secondary">{coordinator.model}</Text>
-            <Text type="secondary">{coordinator.work_subdir || (isChat ? 'chat' : 'coordinator')}</Text>
+            <Text type="secondary">{isChat ? '当前目录根' : (coordinator.work_subdir || 'coordinator')}</Text>
             <Text style={{ whiteSpace: 'pre-wrap' }}>{coordinator.system_prompt}</Text>
           </Space>
         </Card>
@@ -385,18 +410,24 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
               onChange={(value) => {
                 if (value === 'codex') {
                   form.setFieldsValue({
-                    llm_profile_id: '',
+                    provider: 'openai_codex',
                     model: DEFAULT_CODEX_MODEL,
+                    llm_profile_id: '',
+                    base_url: '',
+                    api_key: '',
                   })
                   return
                 }
-                form.setFieldValue('codex_connection_id', '')
+                form.setFieldsValue({
+                  provider: workspace?.default_provider ?? 'anthropic',
+                  codex_connection_id: '',
+                  llm_profile_id: '',
+                })
               }}
             />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => (
             prev.runtime_type !== cur.runtime_type
-            || prev.llm_profile_id !== cur.llm_profile_id
             || prev.codex_connection_id !== cur.codex_connection_id
             || prev.provider !== cur.provider
           )}>
@@ -428,36 +459,22 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
               const provider = getFieldValue('provider')
               return (
                 <>
-                  <Form.Item name="llm_profile_id" label="通用 LLM 配置">
-                    <Select
-                      allowClear
-                      placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
-                    >
-                      {llmProfiles.map((profile) => (
-                        <Option key={profile.id} value={profile.id}>{profile.name}</Option>
-                      ))}
+                  <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+                    <Select>
+                      {PROVIDERS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
                     </Select>
                   </Form.Item>
-                  {getFieldValue('llm_profile_id') ? null : (
-                    <>
-                      <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+                  <Form.Item name="model" label="模型" rules={[{ required: true }]}>
+                    {provider === 'openai_compat'
+                      ? <Input placeholder="例如：deepseek-chat" />
+                      : (
                         <Select>
-                          {PROVIDERS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
+                          {(PRESET_MODELS[provider] ?? []).map((model) => (
+                            <Option key={model} value={model}>{model}</Option>
+                          ))}
                         </Select>
-                      </Form.Item>
-                      <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                        {provider === 'openai_compat'
-                          ? <Input placeholder="例如：deepseek-chat" />
-                          : (
-                            <Select>
-                              {(PRESET_MODELS[provider] ?? []).map((model) => (
-                                <Option key={model} value={model}>{model}</Option>
-                              ))}
-                            </Select>
-                          )}
-                      </Form.Item>
-                    </>
-                  )}
+                      )}
+                  </Form.Item>
                 </>
               )
             }}
@@ -474,9 +491,11 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
           >
             <Input.TextArea rows={6} />
           </Form.Item>
-          <Form.Item name="work_subdir" label="工作子目录">
-            <Input />
-          </Form.Item>
+          {!(isChat && editing.role === 'coordinator') && (
+            <Form.Item name="work_subdir" label="工作子目录">
+              <Input />
+            </Form.Item>
+          )}
           <Form.Item name="temperature" label="Temperature">
             <InputNumber min={0} max={2} step={0.1} style={{ width: 120 }} />
           </Form.Item>
