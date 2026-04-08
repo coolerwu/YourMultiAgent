@@ -197,8 +197,8 @@ def _build_codex_env() -> dict[str, str]:
     env = dict(os.environ)
     env["OTEL_SDK_DISABLED"] = "true"
 
-    # 避免服务进程里的空 OpenAI 认证变量污染 codex login 登录态。
-    # Codex 走 ChatGPT 登录时，这些空值会让底层客户端错误地构造认证头。
+    # Codex 走 ChatGPT 登录态时，不应继承宿主进程里的显式 OpenAI 鉴权配置。
+    # 否则底层客户端可能同时看到 api_key / auth_token，进而报认证方式冲突。
     for key in [
         "OPENAI_API_KEY",
         "OPENAI_AUTH_TOKEN",
@@ -208,8 +208,7 @@ def _build_codex_env() -> dict[str, str]:
         "OPENAI_ORGANIZATION",
         "OPENAI_PROJECT",
     ]:
-        value = env.get(key)
-        if value is not None and not str(value).strip():
+        if key in env:
             env.pop(key, None)
 
     return env

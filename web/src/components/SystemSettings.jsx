@@ -1,11 +1,12 @@
 import { LoginOutlined, ReloadOutlined, SettingOutlined, SyncOutlined } from '@ant-design/icons'
 import { Alert, Button, Card, Popconfirm, Space, Typography, message } from 'antd'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
 
 const { Text } = Typography
 
 export default function SystemSettings() {
+  const hasTriggeredReloadRef = useRef(false)
   const [codexConnections, setCodexConnections] = useState([])
   const [codexActionHints, setCodexActionHints] = useState({})
   const [runningCodexActionId, setRunningCodexActionId] = useState('')
@@ -26,6 +27,16 @@ export default function SystemSettings() {
       workspaceApi.getUpdateNowStatus().then(setUpdateStatus).catch(() => {})
     }, 1500)
     return () => window.clearInterval(timer)
+  }, [updateStatus.status])
+
+  useEffect(() => {
+    if (updateStatus.status !== 'success' || hasTriggeredReloadRef.current) return
+    hasTriggeredReloadRef.current = true
+    message.success('Update Now 已完成，正在刷新页面')
+    const timer = window.setTimeout(() => {
+      window.location.reload()
+    }, 800)
+    return () => window.clearTimeout(timer)
   }, [updateStatus.status])
 
   const loadData = async () => {

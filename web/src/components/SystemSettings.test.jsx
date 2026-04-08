@@ -21,9 +21,11 @@ vi.mock('../utils/workspaceApi', () => ({
 describe('SystemSettings', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
   })
 
   beforeEach(() => {
+    vi.useRealTimers()
     vi.clearAllMocks()
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -37,6 +39,10 @@ describe('SystemSettings', () => {
         removeEventListener: vi.fn(),
         dispatchEvent: vi.fn(),
       })),
+    })
+    vi.stubGlobal('location', {
+      ...window.location,
+      reload: vi.fn(),
     })
     workspaceApiMock.getUpdateNowStatus.mockResolvedValue({
       status: 'idle',
@@ -99,5 +105,21 @@ describe('SystemSettings', () => {
     })
 
     expect((await screen.findAllByText('codex login --device-auth')).length).toBeGreaterThan(0)
+  })
+
+  it('reloads page after update now succeeds', async () => {
+    vi.useRealTimers()
+    workspaceApiMock.getUpdateNowStatus.mockResolvedValue({
+      status: 'success',
+      logs: ['更新完成'],
+      steps: [],
+      error: '',
+    })
+
+    render(<SystemSettings />)
+
+    await waitFor(() => {
+      expect(window.location.reload).toHaveBeenCalledTimes(1)
+    }, { timeout: 2000 })
   })
 })
