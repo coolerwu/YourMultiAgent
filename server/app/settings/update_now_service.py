@@ -18,6 +18,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
 
+GIT_RETRY_COUNT = 3
+GIT_RETRY_DELAY_SECONDS = 2.0
+
 
 @dataclass
 class UpdateStep:
@@ -104,8 +107,8 @@ class UpdateNowService:
     def _run_update(self) -> None:
         try:
             self._run_step("inspect_repo", self._inspect_repo)
-            self._run_step("git_fetch", lambda: self._command_runner(["git", "fetch", "--all", "--prune"], str(self._repo_dir)))
-            self._run_step("git_pull", lambda: self._command_runner(["git", "pull", "--ff-only"], str(self._repo_dir)))
+            self._run_step("git_fetch", lambda: self._run_git_with_retry(["fetch", "--all", "--prune"]))
+            self._run_step("git_pull", lambda: self._run_git_with_retry(["pull", "--ff-only"]))
             current_head = self._read_head()
             with self._lock:
                 self._state.target_commit_after = current_head
@@ -159,9 +162,34 @@ class UpdateNowService:
     def _install_runtime(self) -> subprocess.CompletedProcess[str]:
         pip_bin = str(self._repo_dir / ".venv" / "bin" / "pip")
         return self._command_runner(
-            [pip_bin, "install", "--no-cache-dir", "-e", ".", "langgraph", "setuptools", "wheel"],
+            [pip_bin, "install", "--no-cache-dir", ".", "langgraph", "setuptools", "wheel"],
             str(self._repo_dir),
         )
+
+    def _run_git_with_retry(self, args: list[str]) -> subprocess.CompletedProcess[str]:
+        last_error: Exception | None = None
+        cmd = ["git", "-c", "http.version=HTTP/1.1", *args]
+
+        for attempt in range(1, GIT_RETRY_COUNT + 1):
+            try:
+                result = self._command_runner(cmd, str(self._repo_dir))
+                if attempt > 1:
+                    with self._lock:
+                        self._state.logs.append(f"git {' '.join(args)} 第 {attempt} 次尝试成功")
+                        self._save_state_locked()
+                return result
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt >= GIT_RETRY_COUNT:
+                    break
+                with self._lock:
+                    self._state.logs.append(
+                        f"git {' '.join(args)} 第 {attempt} 次尝试失败，{GIT_RETRY_DELAY_SECONDS:.0f} 秒后重试: {exc}"
+                    )
+                    self._save_state_locked()
+                time.sleep(GIT_RETRY_DELAY_SECONDS)
+
+        raise RuntimeError(f"git {' '.join(args)} 连续失败 {GIT_RETRY_COUNT} 次: {last_error}")
 
     def _read_head(self) -> str:
         result = self._command_runner(["git", "rev-parse", "HEAD"], str(self._repo_dir))

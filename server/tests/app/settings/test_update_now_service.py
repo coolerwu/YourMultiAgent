@@ -48,8 +48,9 @@ def test_start_update_runs_steps_and_marks_restarting(tmp_path):
     assert current["target_commit_before"] == "oldsha"
     assert current["target_commit_after"] == "newsha"
     assert any(step["name"] == "restart_service" and step["status"] == "running" for step in current["steps"])
-    assert any(cmd[:3] == ["git", "fetch", "--all"] for cmd in calls)
-    assert any(cmd[:3] == ["git", "pull", "--ff-only"] for cmd in calls)
+    assert any(cmd[:5] == ["git", "-c", "http.version=HTTP/1.1", "fetch", "--all"] for cmd in calls)
+    assert any(cmd[:5] == ["git", "-c", "http.version=HTTP/1.1", "pull", "--ff-only"] for cmd in calls)
+    assert any(cmd[1:4] == ["install", "--no-cache-dir", "."] for cmd in calls if cmd and cmd[0].endswith("/pip"))
 
 
 def test_resume_from_restarting_marks_success(tmp_path):
@@ -89,3 +90,34 @@ def test_resume_from_restarting_marks_success(tmp_path):
     assert current["status"] == "success"
     assert current["target_commit_after"] == "aftersha"
     assert current["steps"][0]["status"] == "success"
+
+
+def test_git_fetch_retries_before_success(tmp_path):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "run.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+    state_file = tmp_path / "state" / "update_now.json"
+    attempts = {"fetch": 0}
+
+    def fake_runner(cmd: list[str], _cwd: str):
+        if cmd[:3] == ["git", "rev-parse", "HEAD"]:
+            return _completed(cmd, stdout="sha\n")
+        if cmd[:4] == ["git", "-c", "http.version=HTTP/1.1", "fetch"]:
+            attempts["fetch"] += 1
+            if attempts["fetch"] < 2:
+                raise RuntimeError("unable to access origin: TLS connection was non-properly terminated")
+            return _completed(cmd, stdout="fetched\n")
+        return _completed(cmd, stdout="ok\n")
+
+    svc = UpdateNowService(
+        repo_dir=str(repo_dir),
+        state_file=str(state_file),
+        restart_callback=lambda: None,
+        command_runner=fake_runner,
+    )
+
+    result = svc._run_git_with_retry(["fetch", "--all", "--prune"])
+
+    assert result.stdout == "fetched\n"
+    assert attempts["fetch"] == 2
+    assert any("第 1 次尝试失败" in line for line in svc.get_state()["logs"])
