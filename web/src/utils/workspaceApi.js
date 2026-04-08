@@ -20,6 +20,7 @@ export const workspaceApi = {
   getProviderSettings: () => api.get('/api/settings/providers'),
   updateProviderSettings: (data) => api.put('/api/settings/providers', data),
   getCodexRuntimeSummary: () => api.get('/api/settings/codex/runtime'),
+  getAppLog: (lines = 300) => api.get(`/api/settings/logs/app?lines=${lines}`),
   startUpdateNow: () => api.post('/api/admin/update-now', {}),
   getUpdateNowStatus: () => api.get('/api/admin/update-now/current'),
   checkCodexConnection: (id) => api.post(`/api/settings/codex-connections/${id}/check`, {}),

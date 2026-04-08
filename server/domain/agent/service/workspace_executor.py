@@ -20,8 +20,10 @@ from server.domain.agent.service.react_loop import ReactLoop
 from server.domain.agent.service.session_history import build_runtime_messages
 from server.domain.worker.entity.capability_entity import CapabilityEntity
 from server.domain.worker.gateway.worker_gateway import WorkerGateway
+from server.support.app_logging import get_logger
 
 _MAX_TOOL_ROUNDS = 8
+logger = get_logger(__name__)
 
 
 class WorkspaceExecutor:
@@ -139,8 +141,19 @@ class WorkspaceExecutor:
             "actor_name": agent.name,
             "actor_kind": event_type_prefix,
         }
+        logger.info(
+            "agent_run_start workspace=%s node=%s name=%s provider=%s model=%s",
+            self._workspace.id,
+            agent.id,
+            agent.name,
+            agent.provider,
+            agent.model,
+        )
         loop = ReactLoop(
             node_id=agent.id,
+            agent_name=agent.name,
+            provider=str(agent.provider),
+            model=agent.model,
             llm=llm,
             tools=tools,
             worker=self._worker_gateway,
@@ -159,6 +172,14 @@ class WorkspaceExecutor:
                 "actor_name": agent.name,
                 "actor_kind": event_type_prefix,
             }
+        logger.info(
+            "agent_run_end workspace=%s node=%s name=%s provider=%s model=%s",
+            self._workspace.id,
+            agent.id,
+            agent.name,
+            agent.provider,
+            agent.model,
+        )
         yield {
             "type": f"{event_type_prefix}_end",
             "node": agent.id,

@@ -31,6 +31,10 @@ const PRESET_MODELS = {
 }
 const DEFAULT_CODEX_MODEL = ''
 const DEFAULT_CODEX_MODEL_PLACEHOLDER = '留空则使用 Codex CLI 默认模型'
+const MODEL_RUNTIME_OPTIONS = [
+  { value: 'llm', label: 'LLM' },
+  { value: 'codex', label: 'Codex' },
+]
 
 function emptyAgent(defaults, role) {
   const isChat = defaults?.kind === 'chat'
@@ -68,6 +72,10 @@ function sortWorkers(items = []) {
 
 function normalizeWorkerOrder(items = []) {
   return items.map((item, index) => ({ ...item, order: index + 1 }))
+}
+
+function resolveRuntimeType(agent) {
+  return agent?.codex_connection_id ? 'codex' : 'llm'
 }
 
 export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
@@ -115,7 +123,10 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     const target = role === 'coordinator'
       ? coordinator
       : workers[index] ?? emptyAgent(workspace, 'worker')
-    form.setFieldsValue(target)
+    form.setFieldsValue({
+      ...target,
+      runtime_type: resolveRuntimeType(target),
+    })
     setEditing({ open: true, role, index })
   }
 
@@ -128,6 +139,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
       ...baseAgent,
       ...values,
     }
+    delete nextAgent.runtime_type
     if (editing.role === 'coordinator') {
       setCoordinator(nextAgent)
     } else if (editing.index >= 0) {
@@ -367,74 +379,85 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="llm_profile_id" label="通用 LLM 配置">
+          <Form.Item name="runtime_type" label="模型类型" initialValue="llm" rules={[{ required: true }]}>
             <Select
-              allowClear
-              placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
+              options={MODEL_RUNTIME_OPTIONS}
               onChange={(value) => {
-                if (value) form.setFieldValue('codex_connection_id', '')
-              }}
-            >
-              {llmProfiles.map((profile) => (
-                <Option key={profile.id} value={profile.id}>{profile.name}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item name="codex_connection_id" label="Codex 登录连接">
-            <Select
-              allowClear
-              placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
-              onChange={(value) => {
-                if (value) {
+                if (value === 'codex') {
                   form.setFieldsValue({
                     llm_profile_id: '',
                     model: DEFAULT_CODEX_MODEL,
                   })
+                  return
                 }
+                form.setFieldValue('codex_connection_id', '')
               }}
-            >
-              {codexConnections.map((connection) => (
-                <Option key={connection.id} value={connection.id}>{connection.name}</Option>
-              ))}
-            </Select>
+            />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => (
-            prev.llm_profile_id !== cur.llm_profile_id
+            prev.runtime_type !== cur.runtime_type
+            || prev.llm_profile_id !== cur.llm_profile_id
             || prev.codex_connection_id !== cur.codex_connection_id
             || prev.provider !== cur.provider
           )}>
             {({ getFieldValue }) => {
-              if (getFieldValue('llm_profile_id')) return null
-              if (getFieldValue('codex_connection_id')) {
+              const runtimeType = getFieldValue('runtime_type') ?? 'llm'
+              if (runtimeType === 'codex') {
                 return (
-                  <Form.Item
-                    name="model"
-                    label="Codex 模型"
-                    extra="建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写"
-                  >
-                    <Input placeholder={DEFAULT_CODEX_MODEL_PLACEHOLDER} />
-                  </Form.Item>
+                  <>
+                    <Form.Item name="codex_connection_id" label="Codex 登录连接">
+                      <Select
+                        allowClear
+                        placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
+                      >
+                        {codexConnections.map((connection) => (
+                          <Option key={connection.id} value={connection.id}>{connection.name}</Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                    <Form.Item
+                      name="model"
+                      label="Codex 模型"
+                      extra="建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写"
+                    >
+                      <Input placeholder={DEFAULT_CODEX_MODEL_PLACEHOLDER} />
+                    </Form.Item>
+                  </>
                 )
               }
               const provider = getFieldValue('provider')
               return (
                 <>
-                  <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
-                    <Select>
-                      {PROVIDERS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
+                  <Form.Item name="llm_profile_id" label="通用 LLM 配置">
+                    <Select
+                      allowClear
+                      placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
+                    >
+                      {llmProfiles.map((profile) => (
+                        <Option key={profile.id} value={profile.id}>{profile.name}</Option>
+                      ))}
                     </Select>
                   </Form.Item>
-                  <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                    {provider === 'openai_compat'
-                      ? <Input placeholder="例如：deepseek-chat" />
-                      : (
+                  {getFieldValue('llm_profile_id') ? null : (
+                    <>
+                      <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
                         <Select>
-                          {(PRESET_MODELS[provider] ?? []).map((model) => (
-                            <Option key={model} value={model}>{model}</Option>
-                          ))}
+                          {PROVIDERS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
                         </Select>
-                      )}
-                  </Form.Item>
+                      </Form.Item>
+                      <Form.Item name="model" label="模型" rules={[{ required: true }]}>
+                        {provider === 'openai_compat'
+                          ? <Input placeholder="例如：deepseek-chat" />
+                          : (
+                            <Select>
+                              {(PRESET_MODELS[provider] ?? []).map((model) => (
+                                <Option key={model} value={model}>{model}</Option>
+                              ))}
+                            </Select>
+                          )}
+                      </Form.Item>
+                    </>
+                  )}
                 </>
               )
             }}

@@ -9,6 +9,8 @@ Agent 应用服务：编排 Command/Query，协调 domain 与 infra。
 import json
 from typing import AsyncGenerator, Optional
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
 from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
 from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity
@@ -25,7 +27,9 @@ from server.domain.agent.service.session_history import (
     refresh_session_summary,
     summarize_memory,
 )
-from langchain_core.messages import HumanMessage, SystemMessage
+from server.support.app_logging import get_logger, log_ai_error, log_ai_request, log_ai_response
+
+logger = get_logger(__name__)
 
 
 class AgentAppService:
@@ -70,6 +74,13 @@ class AgentAppService:
         session.status = "running"
         append_session_message(session, role="user", kind="user", content=user_message)
         await self._ws_gateway.save(workspace)
+        logger.info(
+            "workspace_run_start workspace=%s session=%s created=%s user_message=%s",
+            workspace.id,
+            session.id,
+            created,
+            user_message[:300],
+        )
         text_buffers: dict[str, dict[str, str]] = {}
         pending_done: dict | None = None
 
@@ -129,6 +140,12 @@ class AgentAppService:
             session.status = "idle"
         except Exception as exc:
             session.status = "failed"
+            logger.exception(
+                "workspace_run_failed workspace=%s session=%s error=%s",
+                workspace.id,
+                session.id,
+                exc,
+            )
             append_session_message(
                 session,
                 role="error",
@@ -153,6 +170,13 @@ class AgentAppService:
         await self._refresh_session_summary(workspace, session)
         refresh_session_memory(session)
         await self._ws_gateway.save(workspace)
+        logger.info(
+            "workspace_run_end workspace=%s session=%s messages=%s summary_len=%s",
+            workspace.id,
+            session.id,
+            session.message_count,
+            len(session.summary or ""),
+        )
         yield {
             "type": "session_updated",
             "session_id": session.id,
@@ -184,10 +208,39 @@ class AgentAppService:
             api_key=cmd.api_key,
         )
         llm = self._llm_gateway.build(agent, workspace)
-        response = await llm.ainvoke([
+        messages = [
             SystemMessage(content=_PROMPT_OPTIMIZER_SYSTEM),
             HumanMessage(content=_build_optimize_request(cmd)),
-        ])
+        ]
+        log_ai_request(
+            logger=logger,
+            phase="optimize_prompt",
+            agent_name=agent.name,
+            node_id=agent.id,
+            provider=str(agent.provider),
+            model=agent.model,
+            messages=messages,
+        )
+        try:
+            response = await llm.ainvoke(messages)
+        except Exception as exc:
+            log_ai_error(
+                logger=logger,
+                phase="optimize_prompt",
+                agent_name=agent.name,
+                node_id=agent.id,
+                error=exc,
+            )
+            raise
+        log_ai_response(
+            logger=logger,
+            phase="optimize_prompt",
+            agent_name=agent.name,
+            node_id=agent.id,
+            provider=str(agent.provider),
+            model=agent.model,
+            response=response,
+        )
         return _parse_optimize_response(response.content)
 
     async def generate_worker(self, cmd: GenerateWorkerCmd) -> dict:
@@ -207,10 +260,39 @@ class AgentAppService:
             api_key=cmd.api_key,
         )
         llm = self._llm_gateway.build(agent, workspace)
-        response = await llm.ainvoke([
+        messages = [
             SystemMessage(content=_WORKER_GENERATOR_SYSTEM),
             HumanMessage(content=_build_generate_worker_request(cmd)),
-        ])
+        ]
+        log_ai_request(
+            logger=logger,
+            phase="generate_worker",
+            agent_name=agent.name,
+            node_id=agent.id,
+            provider=str(agent.provider),
+            model=agent.model,
+            messages=messages,
+        )
+        try:
+            response = await llm.ainvoke(messages)
+        except Exception as exc:
+            log_ai_error(
+                logger=logger,
+                phase="generate_worker",
+                agent_name=agent.name,
+                node_id=agent.id,
+                error=exc,
+            )
+            raise
+        log_ai_response(
+            logger=logger,
+            phase="generate_worker",
+            agent_name=agent.name,
+            node_id=agent.id,
+            provider=str(agent.provider),
+            model=agent.model,
+            response=response,
+        )
         return _parse_worker_response(response.content, cmd)
 
     async def _refresh_session_summary(self, workspace, session: ChatSessionEntity) -> None:
@@ -448,10 +530,42 @@ async def _summarize_session_with_llm(
         api_key=base_agent.api_key,
     )
     llm = llm_gateway.build(summarizer, workspace)
-    response = await llm.ainvoke([
+    messages = [
         SystemMessage(content=_SESSION_COMPACTOR_SYSTEM),
         HumanMessage(content=_build_compact_request(session)),
-    ])
+    ]
+    log_ai_request(
+        logger=logger,
+        phase="session_compact",
+        agent_name=summarizer.name,
+        node_id=summarizer.id,
+        provider=str(summarizer.provider),
+        model=summarizer.model,
+        messages=messages,
+        extra={"session_id": session.id},
+    )
+    try:
+        response = await llm.ainvoke(messages)
+    except Exception as exc:
+        log_ai_error(
+            logger=logger,
+            phase="session_compact",
+            agent_name=summarizer.name,
+            node_id=summarizer.id,
+            error=exc,
+            extra={"session_id": session.id},
+        )
+        raise
+    log_ai_response(
+        logger=logger,
+        phase="session_compact",
+        agent_name=summarizer.name,
+        node_id=summarizer.id,
+        provider=str(summarizer.provider),
+        model=summarizer.model,
+        response=response,
+        extra={"session_id": session.id},
+    )
     text = response.content if isinstance(response.content, str) else str(response.content)
     return text.strip()
 

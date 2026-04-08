@@ -8,9 +8,10 @@ adapter/settings_controller.py
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from server.app.settings.app_log_service import AppLogService
 from server.app.agent.workspace_app_service import WorkspaceAppService
 from server.app.settings.codex_runtime_service import CodexRuntimeService
-from server.container import get_codex_runtime_service, get_workspace_service
+from server.container import get_app_log_service, get_codex_runtime_service, get_workspace_service
 from server.domain.agent.entity.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
@@ -151,6 +152,14 @@ async def get_codex_runtime_summary(
     svc: CodexRuntimeService = Depends(get_codex_runtime_service),
 ):
     return await svc.runtime_summary()
+
+
+@router.get("/logs/app")
+async def get_app_log(
+    lines: int = 300,
+    svc: AppLogService = Depends(get_app_log_service),
+):
+    return svc.get_app_log(lines)
 
 
 @router.post("/codex-connections/{connection_id}/check")

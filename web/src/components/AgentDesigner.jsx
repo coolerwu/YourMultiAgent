@@ -43,6 +43,14 @@ const PRESET_MODELS = {
 }
 const DEFAULT_CODEX_MODEL = ''
 const DEFAULT_CODEX_MODEL_PLACEHOLDER = '留空则使用 Codex CLI 默认模型'
+const MODEL_RUNTIME_OPTIONS = [
+  { value: 'llm', label: 'LLM' },
+  { value: 'codex', label: 'Codex' },
+]
+
+function resolveRuntimeType(agent) {
+  return agent?.codex_connection_id ? 'codex' : 'llm'
+}
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
   const modelLabel = data.codex_connection_name || data.llm_profile_name || data.model
@@ -204,7 +212,10 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
 
   // 双击节点 → 编辑弹窗
   const onNodeDoubleClick = useCallback((_, node) => {
-    nodeForm.setFieldsValue(node.data)
+    nodeForm.setFieldsValue({
+      ...node.data,
+      runtime_type: resolveRuntimeType(node.data),
+    })
     setNodeModal({ open: true, nodeId: node.id })
     closeContextMenu()
   }, [nodeForm])
@@ -220,7 +231,10 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
   const openEditModal = useCallback((nodeId) => {
     const node = nodes.find(n => n.id === nodeId)
     if (!node) return
-    nodeForm.setFieldsValue(node.data)
+    nodeForm.setFieldsValue({
+      ...node.data,
+      runtime_type: resolveRuntimeType(node.data),
+    })
     setNodeModal({ open: true, nodeId })
   }, [nodes, nodeForm])
 
@@ -237,7 +251,10 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
       selected: false,
     }
     setNodes(ns => [...ns, newNode])
-    nodeForm.setFieldsValue(newNode.data)
+    nodeForm.setFieldsValue({
+      ...newNode.data,
+      runtime_type: resolveRuntimeType(newNode.data),
+    })
     setNodeModal({ open: true, nodeId: newId })
     closeContextMenu()
   }, [nodes, nodeForm, setNodes])
@@ -266,6 +283,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         ...currentData,
         ...vals,
       }
+      delete nextData.runtime_type
       const profile = llmProfiles.find(item => item.id === vals.llm_profile_id)
       const codexConnection = codexConnections.find(item => item.id === vals.codex_connection_id)
       setNodes(ns => ns.map(n =>
@@ -405,7 +423,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
       },
     }
     setNodes(ns => [...ns, newNode])
-    nodeForm.setFieldsValue(newNode.data)
+    nodeForm.setFieldsValue({ ...newNode.data, runtime_type: 'llm' })
     setNodeModal({ open: true, nodeId: id })
   }
 
@@ -495,102 +513,113 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             <Input />
           </Form.Item>
 
-          <Form.Item
-            name="llm_profile_id"
-            label="通用 LLM 配置"
-            extra="引用当前 Workspace 预定义的接口和 Token；留空则使用节点自定义配置"
-          >
+          <Form.Item name="runtime_type" label="模型类型" initialValue="llm" rules={[{ required: true }]}>
             <Select
-              allowClear
-              placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
+              options={MODEL_RUNTIME_OPTIONS}
               onChange={(value) => {
-                if (value) nodeForm.setFieldValue('codex_connection_id', '')
-              }}
-            >
-              {llmProfiles.map(profile => (
-                <Option key={profile.id} value={profile.id}>{profile.name}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            name="codex_connection_id"
-            label="Codex 登录连接"
-            extra="引用全局共享的 Codex 登录连接；当前仅完成配置建模，服务端运行时尚未接入真实登录通道"
-          >
-            <Select
-              allowClear
-              placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
-              onChange={(value) => {
-                if (value) {
+                if (value === 'codex') {
                   nodeForm.setFieldsValue({
                     llm_profile_id: '',
                     model: DEFAULT_CODEX_MODEL,
                   })
+                  return
                 }
+                nodeForm.setFieldValue('codex_connection_id', '')
               }}
-            >
-              {codexConnections.map(connection => (
-                <Option key={connection.id} value={connection.id}>{connection.name}</Option>
-              ))}
-            </Select>
+            />
           </Form.Item>
 
           <Form.Item noStyle shouldUpdate={(p, c) => (
-            p.llm_profile_id !== c.llm_profile_id
+            p.runtime_type !== c.runtime_type
+            || p.llm_profile_id !== c.llm_profile_id
             || p.codex_connection_id !== c.codex_connection_id
             || p.provider !== c.provider
           )}>
             {({ getFieldValue }) => {
-              if (getFieldValue('llm_profile_id')) return null
-              if (getFieldValue('codex_connection_id')) {
+              const runtimeType = getFieldValue('runtime_type') ?? 'llm'
+              if (runtimeType === 'codex') {
                 return (
-                  <Form.Item
-                    name="model"
-                    label="Codex 模型"
-                    extra="建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写"
-                  >
-                    <Input placeholder={DEFAULT_CODEX_MODEL_PLACEHOLDER} />
-                  </Form.Item>
+                  <>
+                    <Form.Item
+                      name="codex_connection_id"
+                      label="Codex 登录连接"
+                      extra="引用全局共享的 Codex 登录连接；当前仅完成配置建模，服务端运行时尚未接入真实登录通道"
+                    >
+                      <Select
+                        allowClear
+                        placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
+                      >
+                        {codexConnections.map(connection => (
+                          <Option key={connection.id} value={connection.id}>{connection.name}</Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                    <Form.Item
+                      name="model"
+                      label="Codex 模型"
+                      extra="建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写"
+                    >
+                      <Input placeholder={DEFAULT_CODEX_MODEL_PLACEHOLDER} />
+                    </Form.Item>
+                  </>
                 )
               }
               const provider = getFieldValue('provider')
               return (
                 <>
-                  <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
-                    <Select>
-                      {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+                  <Form.Item
+                    name="llm_profile_id"
+                    label="通用 LLM 配置"
+                    extra="引用当前 Workspace 预定义的接口和 Token；留空则使用节点自定义配置"
+                  >
+                    <Select
+                      allowClear
+                      placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
+                    >
+                      {llmProfiles.map(profile => (
+                        <Option key={profile.id} value={profile.id}>{profile.name}</Option>
+                      ))}
                     </Select>
                   </Form.Item>
 
-                  <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                    {provider === 'openai_compat' ? (
-                      <Input placeholder="例如：deepseek-chat" />
-                    ) : (
-                      <Select>
-                        {(PRESET_MODELS[provider] ?? []).map(m =>
-                          <Option key={m} value={m}>{m}</Option>
-                        )}
-                      </Select>
-                    )}
-                  </Form.Item>
-
-                  {provider === 'openai_compat' && (
+                  {getFieldValue('llm_profile_id') ? null : (
                     <>
-                      <Form.Item
-                        name="base_url"
-                        label="Base URL"
-                        rules={[{ required: true, message: '请输入 base_url' }]}
-                      >
-                        <Input placeholder="https://api.deepseek.com/v1" />
+                      <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+                        <Select>
+                          {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
+                        </Select>
                       </Form.Item>
-                      <Form.Item
-                        name="api_key"
-                        label="API Key（选填）"
-                        extra="留空则使用 Workspace 或环境变量中的 key"
-                      >
-                        <Input.Password placeholder="sk-..." />
+
+                      <Form.Item name="model" label="模型" rules={[{ required: true }]}>
+                        {provider === 'openai_compat' ? (
+                          <Input placeholder="例如：deepseek-chat" />
+                        ) : (
+                          <Select>
+                            {(PRESET_MODELS[provider] ?? []).map(m =>
+                              <Option key={m} value={m}>{m}</Option>
+                            )}
+                          </Select>
+                        )}
                       </Form.Item>
+
+                      {provider === 'openai_compat' && (
+                        <>
+                          <Form.Item
+                            name="base_url"
+                            label="Base URL"
+                            rules={[{ required: true, message: '请输入 base_url' }]}
+                          >
+                            <Input placeholder="https://api.deepseek.com/v1" />
+                          </Form.Item>
+                          <Form.Item
+                            name="api_key"
+                            label="API Key（选填）"
+                            extra="留空则使用 Workspace 或环境变量中的 key"
+                          >
+                            <Input.Password placeholder="sk-..." />
+                          </Form.Item>
+                        </>
+                      )}
                     </>
                   )}
                 </>

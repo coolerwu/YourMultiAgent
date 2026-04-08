@@ -66,7 +66,7 @@ describe('WorkspaceOrchestrationEditor', () => {
     workspaceApiMock.updateOrchestration.mockResolvedValue({})
   })
 
-  it('shows codex model hint when coordinator uses a codex connection', async () => {
+  it('shows codex-only fields after selecting codex runtime type', async () => {
     render(
       <WorkspaceOrchestrationEditor
         workspace={{
@@ -80,6 +80,7 @@ describe('WorkspaceOrchestrationEditor', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /编\s*辑/ }))
 
+    expect(await screen.findByLabelText('模型类型')).toBeInTheDocument()
     expect(await screen.findByLabelText('Codex 模型')).toHaveAttribute(
       'placeholder',
       '留空则使用 Codex CLI 默认模型',

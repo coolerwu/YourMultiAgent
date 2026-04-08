@@ -14,6 +14,7 @@ from pathlib import Path
 
 from server.app.agent.agent_app_service import AgentAppService
 from server.app.agent.workspace_app_service import WorkspaceAppService
+from server.app.settings.app_log_service import AppLogService
 from server.app.settings.codex_runtime_service import CodexRuntimeService
 from server.app.settings.update_now_service import UpdateNowService
 from server.app.worker.worker_app_service import WorkerAppService
@@ -38,6 +39,7 @@ _agent_svc = AgentAppService(_orchestrator, _llm_factory, _workspace_store)
 _workspace_svc = WorkspaceAppService(_workspace_store)
 _worker_svc = WorkerAppService(_worker_router)
 _codex_runtime_svc = CodexRuntimeService(_workspace_store)
+_app_log_svc = AppLogService()
 _update_now_svc = UpdateNowService(
     repo_dir=str(Path(__file__).resolve().parents[1]),
     state_file=str((_data_dir / "admin" / "update_now.json").resolve()),
@@ -68,6 +70,10 @@ def get_worker_router() -> WorkerRouter:
 
 def get_codex_runtime_service() -> CodexRuntimeService:
     return _codex_runtime_svc
+
+
+def get_app_log_service() -> AppLogService:
+    return _app_log_svc
 
 
 def get_update_now_service() -> UpdateNowService:

@@ -17,6 +17,8 @@ from langchain_core.messages import AIMessage
 
 from server.infra.codex.codex_cli import build_codex_subprocess_env, detect_codex_path
 
+_CODEX_EXEC_TIMEOUT_SECONDS = 120
+
 
 class CodexCLIAdapter:
     def __init__(
@@ -83,7 +85,17 @@ class CodexCLIAdapter:
                 cwd=self._work_dir or None,
                 env=_build_codex_env(),
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError as exc:
+                process.kill()
+                await process.communicate()
+                raise ValueError(
+                    f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒），请检查当前模型配置或登录态。"
+                ) from exc
             if process.returncode != 0:
                 raise ValueError(_format_codex_error(stdout.decode("utf-8", errors="ignore"), stderr.decode("utf-8", errors="ignore")))
             if not output_path.exists():

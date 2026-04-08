@@ -7,6 +7,7 @@ const { workspaceApiMock } = vi.hoisted(() => ({
   workspaceApiMock: {
     getUpdateNowStatus: vi.fn(),
     getProviderSettings: vi.fn(),
+    getAppLog: vi.fn(),
     startUpdateNow: vi.fn(),
     checkCodexConnection: vi.fn(),
     installCodexConnection: vi.fn(),
@@ -64,6 +65,13 @@ describe('SystemSettings', () => {
         },
       ],
     })
+    workspaceApiMock.getAppLog.mockResolvedValue({
+      filename: 'app.log',
+      path: '/tmp/app.log',
+      content: '2026-04-08 10:00:00 [INFO] app - ai_request',
+      line_count: 12,
+      exists: true,
+    })
     workspaceApiMock.startUpdateNow.mockResolvedValue({
       status: 'running',
       logs: ['开始执行 Update Now'],
@@ -105,6 +113,14 @@ describe('SystemSettings', () => {
     })
 
     expect((await screen.findAllByText('codex login --device-auth')).length).toBeGreaterThan(0)
+  })
+
+  it('renders app log inside system settings', async () => {
+    render(<SystemSettings />)
+
+    expect(await screen.findByText('应用日志')).toBeInTheDocument()
+    expect(await screen.findByText(/当前只保留一个应用日志文件：app\.log/)).toBeInTheDocument()
+    expect(await screen.findByTestId('system-app-log')).toHaveTextContent('ai_request')
   })
 
   it('reloads page after update now succeeds', async () => {

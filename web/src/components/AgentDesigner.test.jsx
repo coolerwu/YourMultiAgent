@@ -56,7 +56,7 @@ describe('AgentDesigner', () => {
     workerApiMock.listCapabilities.mockResolvedValue([])
   })
 
-  it('opens agent editor from add node action', async () => {
+  it('switches agent editor to codex-specific fields after selecting codex type', async () => {
     render(
       <AgentDesigner
         graph={null}
@@ -73,6 +73,12 @@ describe('AgentDesigner', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 添加节点' }))
 
     expect(await screen.findByText('编辑 Agent')).toBeInTheDocument()
-    expect(screen.getByLabelText('Codex 登录连接')).toBeInTheDocument()
+    expect(screen.getByLabelText('模型类型')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Codex 登录连接')).not.toBeInTheDocument()
+
+    fireEvent.mouseDown(screen.getByLabelText('模型类型'))
+    fireEvent.click(await screen.findByText('Codex'))
+
+    expect(await screen.findByLabelText('Codex 登录连接')).toBeInTheDocument()
   })
 })

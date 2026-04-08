@@ -27,6 +27,9 @@ from server.adapter.worker_controller import router as worker_router
 from server.adapter.worker_ws import router as worker_ws_router
 from server.adapter.workspace_controller import router as workspace_router
 from server.container import init_container
+from server.support.app_logging import configure_app_logging
+
+configure_app_logging()
 
 app = FastAPI(title="YourMultiAgent", version="0.1.0")
 

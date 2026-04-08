@@ -27,6 +27,8 @@ from typing import Any, AsyncGenerator, Optional
 
 from langchain_core.messages import HumanMessage, ToolMessage
 
+from server.support.app_logging import get_logger, log_ai_error, log_ai_request, log_ai_response, log_tool_event
+
 
 class LoopEvent(str, Enum):
     NEED_REASON   = "need_reason"    # 调用 LLM 推理
@@ -72,6 +74,7 @@ def next_event(state: LoopState, max_rounds: int = 8) -> LoopEvent:
 
 
 _FINALIZE_PROMPT = "请根据以上工具调用结果，给出最终回答。"
+logger = get_logger(__name__)
 
 
 class ReactLoop:
@@ -85,6 +88,9 @@ class ReactLoop:
     def __init__(
         self,
         node_id: str,
+        agent_name: str,
+        provider: str,
+        model: str,
         llm: Any,                         # LangChain BaseChatModel
         tools: list,                       # LangChain tool schema list
         worker: Any,                       # WorkerGateway
@@ -93,6 +99,9 @@ class ReactLoop:
         max_rounds: int = 8,
     ) -> None:
         self._node_id   = node_id
+        self._agent_name = agent_name
+        self._provider = provider
+        self._model = model
         self._llm       = llm
         self._bound     = llm.bind_tools(tools) if tools else llm
         self._worker    = worker
@@ -133,11 +142,32 @@ class ReactLoop:
     ) -> AsyncGenerator[dict, None]:
         """调用 LLM（带工具绑定），流式输出文本，累积完整响应。"""
         state.round += 1
+        log_ai_request(
+            logger=logger,
+            phase="reason",
+            agent_name=self._agent_name,
+            node_id=self._node_id,
+            provider=self._provider,
+            model=self._model,
+            messages=state.messages,
+            extra={"round": state.round},
+        )
         acc = None
-        async for chunk in self._bound.astream(state.messages):
-            acc = chunk if acc is None else acc + chunk
-            if chunk.content:
-                yield {"type": "text", "node": self._node_id, "content": chunk.content}
+        try:
+            async for chunk in self._bound.astream(state.messages):
+                acc = chunk if acc is None else acc + chunk
+                if chunk.content:
+                    yield {"type": "text", "node": self._node_id, "content": chunk.content}
+        except Exception as exc:
+            log_ai_error(
+                logger=logger,
+                phase="reason",
+                agent_name=self._agent_name,
+                node_id=self._node_id,
+                error=exc,
+                extra={"round": state.round},
+            )
+            raise
 
         state.last_response = acc
         state.messages.append(acc)
@@ -145,6 +175,16 @@ class ReactLoop:
         # 提取 tool_calls 到待执行队列
         tool_calls = getattr(acc, "tool_calls", None) or []
         state.pending_tools = list(tool_calls)
+        log_ai_response(
+            logger=logger,
+            phase="reason",
+            agent_name=self._agent_name,
+            node_id=self._node_id,
+            provider=self._provider,
+            model=self._model,
+            response=acc,
+            extra={"round": state.round, "tool_call_count": len(tool_calls)},
+        )
 
     async def _handle_tool(
         self, state: LoopState
@@ -154,10 +194,26 @@ class ReactLoop:
         name = tc["name"]
 
         yield {"type": "tool_start", "node": self._node_id, "tool": name}
+        log_tool_event(
+            logger=logger,
+            node_id=self._node_id,
+            agent_name=self._agent_name,
+            tool_name=name,
+            status="start",
+            args=tc["args"],
+        )
         result = await self._worker.invoke(name, tc["args"], self._context)
         state.tool_results[tc["id"]] = result
         state.messages.append(
             ToolMessage(content=str(result), tool_call_id=tc["id"])
+        )
+        log_tool_event(
+            logger=logger,
+            node_id=self._node_id,
+            agent_name=self._agent_name,
+            tool_name=name,
+            status="end",
+            result=result,
         )
         yield {
             "type": "tool_end",
@@ -171,11 +227,42 @@ class ReactLoop:
     ) -> AsyncGenerator[dict, None]:
         """超出最大轮次时，附加提示语，额外调用 LLM（不绑工具）做最终总结。"""
         state.messages.append(HumanMessage(content=_FINALIZE_PROMPT))
+        log_ai_request(
+            logger=logger,
+            phase="finalize",
+            agent_name=self._agent_name,
+            node_id=self._node_id,
+            provider=self._provider,
+            model=self._model,
+            messages=state.messages,
+            extra={"round": state.round},
+        )
         acc = None
-        async for chunk in self._llm.astream(state.messages):
-            acc = chunk if acc is None else acc + chunk
-            if chunk.content:
-                yield {"type": "text", "node": self._node_id, "content": chunk.content}
+        try:
+            async for chunk in self._llm.astream(state.messages):
+                acc = chunk if acc is None else acc + chunk
+                if chunk.content:
+                    yield {"type": "text", "node": self._node_id, "content": chunk.content}
+        except Exception as exc:
+            log_ai_error(
+                logger=logger,
+                phase="finalize",
+                agent_name=self._agent_name,
+                node_id=self._node_id,
+                error=exc,
+                extra={"round": state.round},
+            )
+            raise
 
         state.last_response = acc
         state.done = True
+        log_ai_response(
+            logger=logger,
+            phase="finalize",
+            agent_name=self._agent_name,
+            node_id=self._node_id,
+            provider=self._provider,
+            model=self._model,
+            response=acc,
+            extra={"round": state.round},
+        )
