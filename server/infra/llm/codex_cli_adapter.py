@@ -88,8 +88,8 @@ class CodexCLIAdapter:
             args.extend(["-C", self._work_dir])
 
         if not structured_output:
-            args.append(prompt)
-            content = await _run_codex_simple_with_retry(args, self._work_dir or "")
+            args.append("-")  # 从 stdin 读取 prompt
+            content = await _run_codex_simple_with_retry(args, prompt, self._work_dir or "")
             return AIMessage(content=content, tool_calls=[])
 
         schema = _build_output_schema(bool(self._tools))
@@ -354,23 +354,24 @@ def _is_retryable_codex_error(message: str) -> bool:
     return "timeout" in lowered or "temporarily unavailable" in lowered
 
 
-async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
+async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: str) -> str:
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
     for attempt in range(1, attempts + 1):
         process = None
         started_at = time.monotonic()
         try:
             logger.info(
-                "codex_exec_start mode=simple attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
+                "codex_exec_start mode=simple attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s prompt_chars=%s",
                 attempt,
                 attempts,
                 _CODEX_EXEC_TIMEOUT_SECONDS,
                 work_dir,
                 len(args),
+                len(prompt),
             )
             process = await asyncio.create_subprocess_exec(
                 *args,
-                stdin=asyncio.subprocess.DEVNULL,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
@@ -379,7 +380,7 @@ async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
+                    process.communicate(input=prompt.encode("utf-8")),
                     timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:

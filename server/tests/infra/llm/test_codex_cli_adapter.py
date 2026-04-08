@@ -123,7 +123,7 @@ class _RawProcess:
         self._stdout = stdout
         self._stderr = stderr
 
-    async def communicate(self):
+    async def communicate(self, input=None):  # noqa: A002
         return self._stdout.encode("utf-8"), self._stderr.encode("utf-8")
 
     def kill(self) -> None:  # pragma: no cover - no kill on success
@@ -217,5 +217,6 @@ async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch
     assert result.content == "你好"
     assert "--output-schema" not in captured["command_args"]
     assert "-o" not in captured["command_args"]
-    assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
+    assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.PIPE
     assert captured["kwargs"]["start_new_session"] is True
+    assert captured["command_args"][-1] == "-"
