@@ -17,6 +17,7 @@ from server.domain.agent.entity.agent_entity import (
     GlobalSettingsEntity,
     LLMProfileEntity,
     LLMProvider,
+    WorkspaceKind,
     WorkspaceEntity,
 )
 from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
@@ -58,6 +59,8 @@ class CreateWorkspaceCmd:
     work_dir: str
     default_provider: LLMProvider
     default_model: str
+    kind: WorkspaceKind = WorkspaceKind.WORKSPACE
+    dir_name: str = ""
     default_base_url: str = ""
     default_api_key: str = ""
     llm_profiles: list[LLMProfileCmd] = field(default_factory=list)
@@ -71,6 +74,8 @@ class UpdateWorkspaceCmd:
     work_dir: str
     default_provider: LLMProvider
     default_model: str
+    kind: WorkspaceKind = WorkspaceKind.WORKSPACE
+    dir_name: str = ""
     default_base_url: str = ""
     default_api_key: str = ""
     llm_profiles: list[LLMProfileCmd] = field(default_factory=list)
@@ -94,15 +99,16 @@ class WorkspaceAppService:
         ws = WorkspaceEntity(
             id=str(uuid.uuid4()),
             name=cmd.name,
-            work_dir=_resolve_workspace_dir(cmd.name, cmd.work_dir),
-            dir_name="",
+            kind=cmd.kind,
+            work_dir=_resolve_workspace_dir(cmd.name, cmd.work_dir, cmd.dir_name),
+            dir_name=cmd.dir_name,
             default_provider=effective.default_provider,
             default_model=effective.default_model,
             default_base_url=effective.default_base_url,
             default_api_key=effective.default_api_key,
             llm_profiles=list(effective.llm_profiles),
             codex_connections=list(effective.codex_connections),
-            coordinator=_default_coordinator(effective.default_provider, effective.default_model),
+            coordinator=_default_workspace_agent(cmd.kind, effective.default_provider, effective.default_model),
             workers=[],
         )
         await self._gateway.save(ws)
@@ -114,16 +120,17 @@ class WorkspaceAppService:
         ws = WorkspaceEntity(
             id=cmd.workspace_id,
             name=cmd.name,
-            work_dir=_resolve_workspace_dir(cmd.name, cmd.work_dir),
-            dir_name="",
+            kind=current.kind if current else cmd.kind,
+            work_dir=_resolve_workspace_dir(cmd.name, cmd.work_dir, current.dir_name if current else cmd.dir_name),
+            dir_name=current.dir_name if current else cmd.dir_name,
             default_provider=settings.default_provider,
             default_model=settings.default_model,
             default_base_url=settings.default_base_url,
             default_api_key=settings.default_api_key,
             llm_profiles=list(settings.llm_profiles),
             codex_connections=list(settings.codex_connections),
-            coordinator=current.coordinator if current else _default_coordinator(settings.default_provider, settings.default_model),
-            workers=current.workers if current else [],
+            coordinator=current.coordinator if current else _default_workspace_agent(cmd.kind, settings.default_provider, settings.default_model),
+            workers=current.workers if current and current.kind == WorkspaceKind.WORKSPACE else [],
             sessions=current.sessions if current else [],
         )
         await self._gateway.save(ws)
@@ -265,11 +272,11 @@ def _effective_global_settings(current: GlobalSettingsEntity, cmd: CreateWorkspa
     )
 
 
-def _resolve_workspace_dir(name: str, work_dir: str) -> str:
+def _resolve_workspace_dir(name: str, work_dir: str, dir_name: str = "") -> str:
     if work_dir.strip():
         return str(Path(work_dir).expanduser().resolve())
 
-    safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in name.strip()).strip("-")
+    safe_name = dir_name.strip() or "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in name.strip()).strip("-")
     if not safe_name:
         safe_name = "workspace"
     return str((get_data_dir() / "workspaces" / safe_name).resolve())
@@ -293,6 +300,29 @@ def _default_coordinator(provider: LLMProvider, model: str) -> AgentEntity:
         tools=[],
         work_subdir="coordinator",
     )
+
+
+def _default_chat_agent(provider: LLMProvider, model: str) -> AgentEntity:
+    return AgentEntity(
+        id="chat",
+        name="单聊助手",
+        provider=provider,
+        model=model,
+        system_prompt=(
+            "你是当前单聊目录中的长期助手。"
+            "需要结合该目录下的历史会话摘要、结构化记忆和当前用户消息，连续地完成对话。"
+            "如果需要产出文件或中间结果，统一写入当前目录或其子目录，并明确告知路径。"
+            "不要虚构已执行的操作；工具不足时直接说明。"
+        ),
+        tools=[],
+        work_subdir="chat",
+    )
+
+
+def _default_workspace_agent(kind: WorkspaceKind, provider: LLMProvider, model: str) -> AgentEntity:
+    if kind == WorkspaceKind.CHAT:
+        return _default_chat_agent(provider, model)
+    return _default_coordinator(provider, model)
 
 
 def _to_agent_entity(cmd: AgentNodeCmd) -> AgentEntity:

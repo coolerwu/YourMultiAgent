@@ -9,6 +9,7 @@
 
 import {
   ApiOutlined,
+  CommentOutlined,
   DeleteOutlined,
   FolderOpenOutlined,
   PlusOutlined,
@@ -41,6 +42,7 @@ function ModalFallback() {
 }
 
 function WorkspaceCard({ workspace, active, deleting, onSelect, onEditWorkspace, onDeleteWorkspace }) {
+  const isChat = workspace.kind === 'chat'
   return (
     <div
       onClick={() => onSelect(workspace)}
@@ -68,7 +70,7 @@ function WorkspaceCard({ workspace, active, deleting, onSelect, onEditWorkspace,
             flexShrink: 0,
           }}
         >
-          <FolderOpenOutlined style={{ fontSize: 18 }} />
+          {isChat ? <CommentOutlined style={{ fontSize: 18 }} /> : <FolderOpenOutlined style={{ fontSize: 18 }} />}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: '#101828', lineHeight: 1.2 }}>
@@ -94,7 +96,7 @@ function WorkspaceCard({ workspace, active, deleting, onSelect, onEditWorkspace,
                 fontWeight: 600,
               }}
             >
-              单编排配置
+              {isChat ? '单聊目录' : '单编排配置'}
             </span>
           </div>
         </div>
@@ -172,6 +174,7 @@ export default function Dashboard() {
   const [editingWorkspace, setEditingWorkspace] = useState(null)
   const [orchestrationVersion, setOrchestrationVersion] = useState(0)
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState('')
+  const [managerMode, setManagerMode] = useState('workspace')
 
   const loadWorkspaces = async ({ preservePanel = false } = {}) => {
     try {
@@ -183,7 +186,7 @@ export default function Dashboard() {
       const nextActive = refreshed ?? result[0] ?? null
       setActiveWorkspace(nextActive)
       if (nextActive && !preservePanel) {
-        setActivePanel('workspace')
+        setActivePanel(nextActive.kind === 'chat' ? 'chat' : 'workspace')
       }
     } catch (e) {
       message.error(e.message)
@@ -196,7 +199,8 @@ export default function Dashboard() {
 
   const handleWorkspaceSaved = (workspace) => {
     loadWorkspaces()
-    setActiveWorkspace((prev) => (prev?.id === workspace.id ? workspace : prev))
+    setActiveWorkspace(workspace)
+    setActivePanel(workspace.kind === 'chat' ? 'chat' : 'workspace')
   }
 
   const handleWorkspaceDelete = async (workspace) => {
@@ -248,6 +252,9 @@ export default function Dashboard() {
     },
   ]), [activeWorkspace, orchestrationVersion])
 
+  const chatSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind === 'chat'), [workspaces])
+  const orchestrationSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind !== 'chat'), [workspaces])
+
   return (
     <Layout style={{ minHeight: '100vh', background: '#f8fafc' }}>
       <Sider width={320} theme="light" style={{ borderRight: '1px solid #eaecf0', padding: 16, background: '#fcfcfd' }}>
@@ -283,8 +290,36 @@ export default function Dashboard() {
             </div>
           </Space>
           <Tooltip title="新建 Workspace">
-            <Button icon={<PlusOutlined />} size="middle" type="text" onClick={() => { setEditingWorkspace(null); setWsModalOpen(true) }} />
+            <Button icon={<PlusOutlined />} size="middle" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
           </Tooltip>
+        </div>
+
+        <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>单聊</Text>
+          <Tooltip title="新建单聊目录">
+            <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
+          </Tooltip>
+        </div>
+
+        <div>
+          {chatSpaces.map((workspace) => (
+            <WorkspaceCard
+              key={workspace.id}
+              workspace={workspace}
+              active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
+              deleting={deletingWorkspaceId === workspace.id}
+              onSelect={(ws) => {
+                setActiveWorkspace(ws)
+                setActivePanel('chat')
+              }}
+              onEditWorkspace={(ws) => {
+                setEditingWorkspace(ws)
+                setManagerMode('chat')
+                setWsModalOpen(true)
+              }}
+              onDeleteWorkspace={handleWorkspaceDelete}
+            />
+          ))}
         </div>
 
         <div style={{ marginBottom: 12, padding: '0 4px' }}>
@@ -292,7 +327,7 @@ export default function Dashboard() {
         </div>
 
         <div>
-          {workspaces.map((workspace) => (
+          {orchestrationSpaces.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}
               workspace={workspace}
@@ -304,6 +339,7 @@ export default function Dashboard() {
               }}
               onEditWorkspace={(ws) => {
                 setEditingWorkspace(ws)
+                setManagerMode('workspace')
                 setWsModalOpen(true)
               }}
               onDeleteWorkspace={handleWorkspaceDelete}
@@ -345,6 +381,12 @@ export default function Dashboard() {
           <Suspense fallback={<TabFallback />}>
             <SystemSettings />
           </Suspense>
+        ) : activePanel === 'chat' && activeWorkspace ? (
+          <Suspense fallback={<TabFallback />}>
+            <div style={{ height: 'calc(100vh - 36px)', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+              <WorkspaceRunView key={`${activeWorkspace?.id ?? 'none'}-chat`} workspace={activeWorkspace} />
+            </div>
+          </Suspense>
         ) : activeWorkspace ? (
           <Tabs
             activeKey={activeTab}
@@ -361,6 +403,7 @@ export default function Dashboard() {
       <Suspense fallback={<ModalFallback />}>
         <WorkspaceManager
           open={wsModalOpen}
+          mode={managerMode}
           workspace={editingWorkspace}
           onClose={() => setWsModalOpen(false)}
           onSaved={handleWorkspaceSaved}

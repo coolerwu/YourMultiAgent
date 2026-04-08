@@ -1,6 +1,6 @@
 ---
 name: commit-push
-description: YourMultiAgent 项目专用提交技能。当用户说“提交”“commit”“push”或“/commit-push”时使用。执行完整提交流程：代码 review、补充单测、按需更新项目文档、构建前端，并完成 git commit 与 push。
+description: YourMultiAgent 项目专用提交技能。当用户说“提交”“commit”“push”或“/commit-push”时使用。执行完整提交流程：代码 review、补充单测、同步更新 README/Agents/docs、构建前端，并完成一次完整 commit 与 push。
 ---
 
 # Commit Push
@@ -44,8 +44,11 @@ python3 .agents/skills/commit-push/scripts/check_and_test.py
 
 ### Step 4：更新项目文档
 
-- 若本次变更影响架构、模型、约定，更新对应文档
-- 优先更新 `Agents.md`
+- 若本次变更影响功能、架构、模型、运维入口、协作约定，必须先更新文档再提交
+- 默认至少检查并按需更新：
+  - `README.md`
+  - `Agents.md`
+  - `docs/*.md`
 - 如需兼容 Claude 工作流，再同步更新 `CLAUDE.md`
 - 若主索引文档超过 200 行，将大段细节抽取到 `docs/<topic>.md`
 
@@ -63,10 +66,11 @@ cd web && npm run build
 
 1. 确认 `.gitignore` 存在，避免 `__pycache__`、`node_modules` 等无关文件被提交
 2. 按文件或目录精确 `git add`，禁止 `git add .` 与 `git add -A`
-3. 根据变更内容生成中文 commit message，重点写 why，不只写 what
-4. 执行 `git commit`
-5. 执行 `git push`
-6. 输出最终 commit hash 和 push 结果
+3. 提交前确认本次应提交的源码、测试、文档、前端构建产物已全部纳入，禁止把相关文件拆成多次零散提交
+4. 根据变更内容生成中文 commit message，重点写 why，不只写 what
+5. 执行 `git commit`
+6. 执行 `git push`
+7. 输出最终 commit hash 和 push 结果，并说明是否仍有未提交改动
 
 ## 硬性约束
 
@@ -74,4 +78,5 @@ cd web && npm run build
 - 禁止 `--no-verify` 跳过 hooks
 - 禁止 force push 到 `main`
 - commit message 使用中文
+- 同一轮用户确认的相关变更必须一次性完整提交：源码、测试、README、Agents、docs、以及仓库约定需要提交的构建产物
 - 每一步都直接用工具执行

@@ -14,7 +14,7 @@ from typing import AsyncGenerator
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, WorkspaceEntity, WorkspaceKind
 from server.domain.agent.gateway.llm_gateway import LLMGateway
 from server.domain.agent.service.react_loop import ReactLoop
 from server.domain.agent.service.session_history import build_runtime_messages
@@ -41,6 +41,20 @@ class WorkspaceExecutor:
         root = Path(self._workspace_root)
         root.mkdir(parents=True, exist_ok=True)
         (root / "shared").mkdir(parents=True, exist_ok=True)
+
+        if self._workspace.kind == WorkspaceKind.CHAT:
+            assistant = self._workspace.coordinator
+            if assistant is None:
+                raise ValueError("单聊目录尚未配置默认助手")
+            async for event in self._stream_agent(
+                agent=assistant,
+                event_type_prefix="coordinator",
+                session=session,
+                user_message=user_message,
+            ):
+                yield event
+            yield {"type": "done"}
+            return
 
         coordinator = self._workspace.coordinator
         if coordinator is None:

@@ -63,6 +63,7 @@ function normalizeSession(session) {
 }
 
 export default function WorkspaceRunView({ workspace }) {
+  const isChat = workspace?.kind === 'chat'
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState([])
   const [running, setRunning] = useState(false)
@@ -80,11 +81,17 @@ export default function WorkspaceRunView({ workspace }) {
   }, [activeSessionId])
 
   useEffect(() => {
-    if (!workspace?.id) return
+    if (!workspace?.id || isChat) {
+      setOrchestration({
+        coordinator: workspace?.coordinator ?? null,
+        workers: [],
+      })
+      return
+    }
     workspaceApi.getOrchestration(workspace.id)
       .then(setOrchestration)
       .catch(() => setOrchestration({ coordinator: null, workers: [] }))
-  }, [workspace?.id])
+  }, [workspace?.id, workspace?.coordinator, isChat])
 
   useEffect(() => {
     const next = {}
@@ -364,9 +371,18 @@ export default function WorkspaceRunView({ workspace }) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, padding: '20px 16px', background: '#f7f8fa', borderBottom: '1px solid #f0f0f0', minHeight: 190 }}>
-          {orderedParticipants.map((agent) => <AgentCard key={agent.id} agent={agent} state={states[agent.id] || 'idle'} workspace={workspace} />)}
-        </div>
+        {isChat ? (
+          <div style={{ padding: '16px', background: '#f7f8fa', borderBottom: '1px solid #f0f0f0' }}>
+            <Text strong>{workspace?.name || '单聊目录'}</Text>
+            <div style={{ marginTop: 6 }}>
+              <Text type="secondary">当前目录中的历史会话、compact 摘要和 memory 会持续复用。</Text>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, padding: '20px 16px', background: '#f7f8fa', borderBottom: '1px solid #f0f0f0', minHeight: 190 }}>
+            {orderedParticipants.map((agent) => <AgentCard key={agent.id} agent={agent} state={states[agent.id] || 'idle'} workspace={workspace} />)}
+          </div>
+        )}
         <div style={{ padding: '10px 16px', background: '#fcfcfc', borderBottom: '1px solid #f0f0f0' }}>
           {sessionMeta.summary
             ? (
@@ -385,7 +401,7 @@ export default function WorkspaceRunView({ workspace }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
             <Button icon={<CopyOutlined />} onClick={copyAllMessages} disabled={messages.length === 0}>复制运行记录</Button>
           </div>
-          {messages.length === 0 && <Text type="secondary">输入任务，主控智能体会拆解并分派给各 Worker。</Text>}
+          {messages.length === 0 && <Text type="secondary">{isChat ? '输入消息后，当前单聊目录会继续沿用已有记忆和历史上下文。' : '输入任务，主控智能体会拆解并分派给各 Worker。'}</Text>}
           {messages.map((msg, index) => (
             <div key={`${msg.created_at || index}-${index}`} style={{ marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
               <Tag color={msg.role === 'user' ? 'blue' : msg.role === 'error' ? 'red' : msg.role === 'assistant' ? 'green' : 'default'}>
@@ -410,7 +426,7 @@ export default function WorkspaceRunView({ workspace }) {
               }}
               disabled={running}
               autoSize={{ minRows: 2, maxRows: 6 }}
-              placeholder="输入任务，交给主控智能体...（Ctrl+Enter 发送）"
+              placeholder={isChat ? '输入消息...（Ctrl+Enter 发送）' : '输入任务，交给主控智能体...（Ctrl+Enter 发送）'}
             />
             <Button type="primary" icon={<SendOutlined />} onClick={run} loading={running}>发送</Button>
           </Space.Compact>

@@ -188,3 +188,28 @@ cd web && npm run build
 - [`Agents.md`](Agents.md)：项目总体约定与协作规范
 - [`CLAUDE.md`](CLAUDE.md)：Claude 代理协作说明
 - [`docs/session-history.md`](docs/session-history.md)：会话历史 / compact / memory 机制
+- [`docs/operations.md`](docs/operations.md)：系统设置、Update Now 与 Codex 运行时说明
+
+## 系统设置与 Codex 运行时
+
+左侧 `系统设置` 页面当前包含：
+
+- `Update Now`
+  - 对当前应用执行增量更新并重启服务
+- `Codex 运行时`
+  - 查看当前宿主机上的 Codex CLI 版本、安装路径、登录状态
+  - 执行 `检测环境`、`安装/更新 Codex`、`登录 Codex`
+
+需要注意：
+
+- `Codex 运行时` 是宿主机级能力，不是每个 Workspace 独立一套
+- 当前同一台宿主机只支持一份 Codex CLI 安装和一份有效登录态
+- 如果系统设置里有多个 Codex 连接，它们当前主要是“配置引用”而不是“多账号隔离”
+
+安装或更新 Codex 完成后，建议：
+
+```bash
+codex login --device-auth
+```
+
+如果当前终端里还找不到新安装的命令，请先退出终端并重新进入。

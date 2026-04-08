@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity, WorkspaceKind
 from server.infra.store.json_workspace_store import JsonWorkspaceStore
 from server.infra.store.workspace_json import setting_path, workspace_file_path
 
@@ -18,6 +18,7 @@ def _make_ws(ws_id="ws-1") -> WorkspaceEntity:
         id=ws_id,
         name="My Workspace",
         work_dir="~/projects/test",
+        kind=WorkspaceKind.WORKSPACE,
         default_provider=LLMProvider.OPENAI_COMPAT,
         default_model="deepseek-chat",
         default_base_url="https://api.deepseek.com/v1",
@@ -139,6 +140,7 @@ async def test_save_and_find_by_id(tmp_path):
     assert result is not None
     assert result.name == "My Workspace"
     assert result.dir_name == "My-Workspace"
+    assert result.kind == WorkspaceKind.WORKSPACE
     assert setting_path(tmp_path).exists()
     assert workspace_file_path(tmp_path, "My-Workspace").exists()
 
@@ -218,6 +220,24 @@ async def test_delete(tmp_path):
 async def test_delete_nonexistent(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
     assert await store.delete("ghost") is False
+
+
+@pytest.mark.asyncio
+async def test_save_chat_workspace_preserves_kind_and_custom_dir(tmp_path):
+    store = JsonWorkspaceStore(tmp_path)
+    await store.save_global_settings(GlobalSettingsEntity())
+    workspace = _make_ws("chat-1")
+    workspace.kind = WorkspaceKind.CHAT
+    workspace.dir_name = "pettrace"
+    workspace.work_dir = str(tmp_path / "workspaces" / "pettrace")
+
+    await store.save(workspace)
+    result = await store.find_by_id("chat-1")
+
+    assert result is not None
+    assert result.kind == WorkspaceKind.CHAT
+    assert result.dir_name == "pettrace"
+    assert workspace_file_path(tmp_path, "pettrace").exists()
 
 
 @pytest.mark.asyncio

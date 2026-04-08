@@ -26,6 +26,11 @@ class LLMProvider(str, Enum):
     OPENAI_CODEX = "openai_codex"
 
 
+class WorkspaceKind(str, Enum):
+    WORKSPACE = "workspace"
+    CHAT = "chat"
+
+
 class EdgeCondition(str, Enum):
     """遗留字段：旧条件边类型，运行时已不再使用。"""
     ALWAYS = "always"
@@ -184,6 +189,7 @@ class WorkspaceEntity:
     id: str
     name: str
     work_dir: str                           # 根目录，支持 ~ 展开
+    kind: WorkspaceKind = WorkspaceKind.WORKSPACE
     dir_name: str = ""
     default_provider: LLMProvider = LLMProvider.ANTHROPIC
     default_model: str = "claude-sonnet-4-6"

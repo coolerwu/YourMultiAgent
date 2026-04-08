@@ -20,6 +20,7 @@ YourMultiAgent/
 - `docs/web-architecture.md`：前端容器级架构图（C4 Model Level 2）
 - `docs/agent-model.md`：Agent / Worker 运行模型容器图（C4 Model Level 2）
 - `docs/session-history.md`：Workspace 会话历史、compact 与 memory 机制
+- `docs/operations.md`：系统设置、Update Now、Codex 运行时与登录态约定
 
 ## 测试
 
@@ -74,6 +75,13 @@ cd web && npm run build
 - 涉及多 Worker 通信时，先保证本机内置 Worker 路径清晰，再扩远程接入
 - `Agents.md` 只保留高层约定、入口说明和关键索引；当某一主题细节变多或主文档体量明显增大时，优先拆分到 `docs/*.md`，并在 `Agents.md` 中保留链接与简短摘要
 
+## Codex 运行时约定
+
+- `Codex 运行时` 属于宿主机级能力，不是每个 Workspace 或每个连接各自独立的一套安装
+- 当前同一台宿主机只支持一份 Codex CLI 安装和一份有效登录态
+- 若用户要求“多个 Codex 账号并存”，必须明确说明当前版本不支持，需要单独设计隔离方案
+- 涉及 Codex 安装、更新、登录、Update Now 等系统级能力时，应同步检查并更新 `README.md` 与 `docs/operations.md`
+
 ## 会话与上下文
 
 - Workspace 运行链路支持多条历史会话，每条会话使用 `session_id` 续聊
@@ -88,4 +96,4 @@ cd web && npm run build
 1. 相关功能是否有最小可验证路径。
 2. 是否补充或更新了必要测试。
 3. 是否破坏了 `server/` 与 `web/` 的既有边界。
-4. 是否需要同步更新 `CLAUDE.md` 或 `docs/` 文档。
+4. 是否已同步更新 `README.md`、`Agents.md`、`docs/`，以及需要兼容时的 `CLAUDE.md`。

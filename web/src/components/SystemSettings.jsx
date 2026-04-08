@@ -182,7 +182,7 @@ export default function SystemSettings() {
               type="info"
               showIcon
               message="管理宿主机上的 Codex CLI"
-              description="更新 Codex 只影响当前机器上的 codex CLI，不会更新应用服务本身。安装或更新完成后，请退出终端并重新进入，再执行 codex login --device-auth。"
+              description="更新 Codex 只影响当前机器上的 codex CLI，不会更新应用服务本身。当前同一台宿主机只维护一份 Codex 安装和一份登录态，不支持在这里并行登录多个不同账号。安装或更新完成后，请退出终端并重新进入，再执行 codex login --device-auth。"
             />
 
             {codexConnections.length === 0 ? (

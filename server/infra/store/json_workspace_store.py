@@ -38,7 +38,8 @@ class JsonWorkspaceStore(WorkspaceGateway):
         entries = load_setting_entries(self._data_dir)
         entry = next((item for item in entries if item["id"] == ws.id), None)
         if entry is None:
-            dir_name = _unique_dir_name(self._data_dir, sanitize_workspace_name(ws.name), entries)
+            desired_dir_name = sanitize_workspace_name(ws.dir_name or ws.name)
+            dir_name = _unique_dir_name(self._data_dir, desired_dir_name, entries)
             entry = {"id": ws.id, "name": ws.name, "dir_name": dir_name}
             entries.append(entry)
         else:

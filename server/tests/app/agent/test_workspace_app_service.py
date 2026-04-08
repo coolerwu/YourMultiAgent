@@ -16,6 +16,7 @@ from server.app.agent.workspace_app_service import (
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
 from server.domain.agent.entity.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import WorkspaceKind
 
 
 def _make_gateway(ws: WorkspaceEntity | None = None):
@@ -56,6 +57,7 @@ async def test_create_workspace_calls_save():
     assert ws.llm_profiles[0].name == "共享 GPT"
     assert ws.coordinator is not None
     assert ws.coordinator.name == "主控智能体"
+    assert ws.kind == WorkspaceKind.WORKSPACE
 
 
 @pytest.mark.asyncio
@@ -66,6 +68,24 @@ async def test_create_workspace_uses_default_work_dir_when_empty():
     cmd.work_dir = ""
     ws = await svc.create_workspace(cmd)
     assert ws.work_dir.endswith("/workspaces/My-WS") or ws.work_dir.endswith("\\workspaces\\My-WS")
+
+
+@pytest.mark.asyncio
+async def test_create_chat_workspace_uses_dir_name_and_chat_agent():
+    gw = _make_gateway()
+    svc = WorkspaceAppService(gw)
+    cmd = _sample_create_cmd()
+    cmd.kind = WorkspaceKind.CHAT
+    cmd.dir_name = "pettrace"
+    cmd.work_dir = ""
+
+    ws = await svc.create_workspace(cmd)
+
+    assert ws.kind == WorkspaceKind.CHAT
+    assert ws.dir_name == "pettrace"
+    assert ws.work_dir.endswith("/workspaces/pettrace") or ws.work_dir.endswith("\\workspaces\\pettrace")
+    assert ws.coordinator is not None
+    assert ws.coordinator.name == "单聊助手"
 
 
 @pytest.mark.asyncio

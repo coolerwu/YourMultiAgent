@@ -66,4 +66,17 @@ describe('WorkspaceRunView', () => {
     expect(await screen.findByText('goal: 做一个页面')).toBeInTheDocument()
     expect(await screen.findByText('页面结构已确认')).toBeInTheDocument()
   })
+
+  it('renders chat-specific copy for chat workspace', async () => {
+    render(<WorkspaceRunView workspace={{ id: 'chat-1', kind: 'chat', name: 'PetTrace', coordinator: { id: 'chat', name: '单聊助手' }, llm_profiles: [] }} />)
+
+    await waitFor(() => {
+      expect(workspaceApiMock.listSessions).toHaveBeenCalledWith('chat-1')
+    })
+
+    expect(screen.getByText('PetTrace')).toBeInTheDocument()
+    expect(screen.getByText('当前目录中的历史会话、compact 摘要和 memory 会持续复用。')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('输入消息...（Ctrl+Enter 发送）')).toBeInTheDocument()
+    expect(workspaceApiMock.getOrchestration).not.toHaveBeenCalled()
+  })
 })

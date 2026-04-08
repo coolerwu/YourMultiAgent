@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 from server.app.agent.agent_app_service import AgentAppService
 from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
 from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
 
 
 @pytest.fixture
@@ -105,6 +105,30 @@ async def test_run_workspace_reuses_existing_session(svc, mock_workspace_gateway
 
     assert all(event["type"] != "session_created" for event in events)
     assert session.message_count >= 3
+
+
+@pytest.mark.asyncio
+async def test_run_chat_workspace_keeps_chat_kind_and_updates_session(svc, mock_workspace_gateway):
+    workspace = WorkspaceEntity(
+        id="chat-1",
+        name="PetTrace",
+        kind=WorkspaceKind.CHAT,
+        work_dir="/tmp/pettrace",
+        coordinator=AgentEntity(
+            id="chat",
+            name="单聊助手",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是单聊助手。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+
+    events = [event async for event in svc.run_workspace("chat-1", "你好")]
+
+    assert events[-1]["type"] == "done"
+    assert any(event["type"] == "session_created" for event in events)
+    assert workspace.sessions[0].message_count >= 2
 
 
 @pytest.mark.asyncio

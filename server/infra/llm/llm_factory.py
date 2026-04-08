@@ -87,4 +87,12 @@ def _resolve_llm_config(
             agent.api_key or profile.api_key,
         )
 
+    if workspace:
+        return (
+            agent.provider or workspace.default_provider,
+            agent.model or workspace.default_model,
+            agent.base_url or workspace.default_base_url,
+            agent.api_key or workspace.default_api_key,
+        )
+
     return agent.provider, agent.model, agent.base_url, agent.api_key

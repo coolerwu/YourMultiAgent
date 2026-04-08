@@ -22,6 +22,7 @@ from server.domain.agent.entity.agent_entity import (
     LLMProfileEntity,
     LLMProvider,
     MemoryItemEntity,
+    WorkspaceKind,
     WorkspaceEntity,
 )
 
@@ -148,6 +149,7 @@ def workspace_to_payload(ws: WorkspaceEntity, graphs: list[GraphEntity]) -> dict
         "id": ws.id,
         "name": ws.name,
         "work_dir": ws.work_dir,
+        "kind": ws.kind,
         "dir_name": ws.dir_name,
         "coordinator": dataclasses.asdict(ws.coordinator) if ws.coordinator else None,
         "workers": [dataclasses.asdict(worker) for worker in ws.workers],
@@ -161,6 +163,7 @@ def workspace_from_payload(d: dict) -> WorkspaceEntity:
         id=d["id"],
         name=d["name"],
         work_dir=d["work_dir"],
+        kind=WorkspaceKind(d.get("kind", "workspace")),
         dir_name=d.get("dir_name", ""),
         default_provider=LLMProvider(d.get("default_provider", "anthropic")),
         default_model=d.get("default_model", "claude-sonnet-4-6"),

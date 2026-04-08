@@ -225,9 +225,24 @@ ensure_systemd_service() {
 
 verify_service() {
   echo "▶  验证服务状态"
-  sleep 2
+  local health_url="http://127.0.0.1:${PORT}/api/health"
+  local attempts=15
+  local wait_seconds=2
+  local attempt=1
+
   systemctl status "$SERVICE_NAME" --no-pager || true
-  python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:${PORT}/api/health', timeout=5).read().decode())"
+
+  while [ "$attempt" -le "$attempts" ]; do
+    if python3 -c "import urllib.request; print(urllib.request.urlopen('${health_url}', timeout=3).read().decode())"; then
+      return 0
+    fi
+    echo "   健康检查未通过，${wait_seconds}s 后重试（${attempt}/${attempts}）"
+    sleep "$wait_seconds"
+    attempt=$((attempt + 1))
+  done
+
+  echo "健康检查失败：${health_url}"
+  return 1
 }
 
 

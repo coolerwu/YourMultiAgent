@@ -2,7 +2,7 @@ import pytest
 
 from server.domain.agent.entity.agent_entity import AgentEntity, CodexConnectionEntity, LLMProvider, WorkspaceEntity
 from server.infra.llm.codex_cli_adapter import CodexCLIAdapter
-from server.infra.llm.llm_factory import LangChainLLMFactory
+from server.infra.llm.llm_factory import LangChainLLMFactory, _resolve_llm_config
 
 
 def test_llm_factory_builds_codex_adapter(monkeypatch):
@@ -64,3 +64,31 @@ def test_llm_factory_rejects_unlogged_codex(monkeypatch):
 
     with pytest.raises(ValueError, match="尚未完成 codex login"):
         factory.build(agent, workspace)
+
+
+def test_resolve_llm_config_falls_back_to_workspace_defaults():
+    workspace = WorkspaceEntity(
+        id="ws-1",
+        name="demo",
+        work_dir="/tmp/demo",
+        default_provider=LLMProvider.OPENAI_COMPAT,
+        default_model="deepseek-chat",
+        default_base_url="https://api.deepseek.com/v1",
+        default_api_key="sk-demo",
+    )
+    agent = AgentEntity(
+        id="agent-1",
+        name="单聊助手",
+        provider=LLMProvider.OPENAI_COMPAT,
+        model="deepseek-chat",
+        system_prompt="你是助手",
+        base_url="",
+        api_key="",
+    )
+
+    provider, model, base_url, api_key = _resolve_llm_config(agent, workspace)
+
+    assert provider == LLMProvider.OPENAI_COMPAT
+    assert model == "deepseek-chat"
+    assert base_url == "https://api.deepseek.com/v1"
+    assert api_key == "sk-demo"

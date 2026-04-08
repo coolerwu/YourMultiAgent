@@ -23,7 +23,7 @@ from server.app.agent.workspace_app_service import (
     WorkspaceAppService,
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
-from server.domain.agent.entity.agent_entity import LLMProvider
+from server.domain.agent.entity.agent_entity import LLMProvider, WorkspaceKind
 from server.container import get_workspace_service
 
 class LLMProfileReq(BaseModel):
@@ -43,6 +43,8 @@ router = APIRouter(prefix="/api/workspaces", tags=["Workspace"])
 class WorkspaceReq(BaseModel):
     name: str
     work_dir: str = ""
+    kind: WorkspaceKind = WorkspaceKind.WORKSPACE
+    dir_name: str = ""
     default_provider: LLMProvider = LLMProvider.ANTHROPIC
     default_model: str = "claude-sonnet-4-6"
     default_base_url: str = ""
@@ -88,6 +90,8 @@ async def create_workspace(req: WorkspaceReq, svc: WorkspaceAppService = Depends
     cmd = CreateWorkspaceCmd(
         name=req.name,
         work_dir=req.work_dir,
+        kind=req.kind,
+        dir_name=req.dir_name,
         default_provider=req.default_provider,
         default_model=req.default_model,
         default_base_url=req.default_base_url,
@@ -157,6 +161,8 @@ async def update_workspace(
         workspace_id=workspace_id,
         name=req.name,
         work_dir=req.work_dir,
+        kind=req.kind,
+        dir_name=req.dir_name,
         default_provider=req.default_provider,
         default_model=req.default_model,
         default_base_url=req.default_base_url,
