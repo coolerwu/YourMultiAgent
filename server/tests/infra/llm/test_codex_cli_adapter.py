@@ -202,24 +202,24 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
 async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch):
     captured = {}
 
-    async def _fake_create_subprocess_exec(*command_args, **kwargs):
-        captured["command_args"] = list(command_args)
+    async def _fake_create_subprocess_shell(cmd, **kwargs):
+        captured["cmd"] = cmd
         captured["kwargs"] = kwargs
         return _RawProcess(
             "OpenAI Codex v0.118.0\n--------\nuser\nhello\ncodex\n你好\ntokens used\n123\n"
         )
 
-    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_shell", _fake_create_subprocess_shell)
     adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
 
     result = await adapter.ainvoke([HumanMessage(content="hello")])
 
     assert result.content == "你好"
-    # simple 模式直接执行 codex exec，prompt 作为参数传递
-    assert captured["command_args"][0] == "codex"
-    assert captured["command_args"][1] == "exec"
-    # prompt 作为最后一个参数
-    assert "hello" in captured["command_args"][-1]
+    # simple 模式使用 shell 执行，所有参数用 shlex.quote 包裹
+    assert "codex" in captured["cmd"]
+    assert "exec" in captured["cmd"]
+    # prompt 被单引号包裹（shlex.quote 使用单引号）
+    # prompt 包含 "[human]" 标记
+    assert "[human]" in captured["cmd"]
     # 不使用 stdin PIPE
     assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
-    assert captured["kwargs"]["start_new_session"] is True

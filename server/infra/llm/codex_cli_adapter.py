@@ -101,6 +101,7 @@ class CodexCLIAdapter:
             schema_path = Path(temp_dir) / "schema.json"
             output_path = Path(temp_dir) / "output.json"
             schema_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
+            import shlex
             args.extend([
                 "--output-schema",
                 str(schema_path),
@@ -357,29 +358,34 @@ def _is_retryable_codex_error(message: str) -> bool:
 
 async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
     """
-    直接执行 Codex CLI，prompt 已作为参数传递，无需 stdin。
+    使用 shell 执行 Codex CLI，确保带空格的参数被正确引用。
     """
+    import shlex
+
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
+
+    # 将所有参数用 shlex.quote 包裹，拼接成完整的 shell 命令
+    cmd_str = " ".join(shlex.quote(a) for a in args)
+
     for attempt in range(1, attempts + 1):
         process = None
         started_at = time.monotonic()
         try:
             logger.info(
-                "codex_simple_start attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
+                "codex_simple_start attempt=%s/%s timeout=%ss work_dir=%s cmd_chars=%s",
                 attempt,
                 attempts,
                 _CODEX_EXEC_TIMEOUT_SECONDS,
                 work_dir,
-                len(args),
+                len(cmd_str),
             )
-            process = await asyncio.create_subprocess_exec(
-                *args,
+            process = await asyncio.create_subprocess_shell(
+                cmd_str,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
-                start_new_session=True,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
