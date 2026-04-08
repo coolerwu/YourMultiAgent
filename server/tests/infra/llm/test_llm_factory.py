@@ -1,6 +1,6 @@
 import pytest
 
-from server.domain.agent.entity.agent_entity import AgentEntity, CodexConnectionEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.agent_entity import AgentEntity, CodexConnectionEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
 from server.infra.llm.codex_cli_adapter import CodexCLIAdapter
 from server.infra.llm.llm_factory import LangChainLLMFactory, _resolve_llm_config
 

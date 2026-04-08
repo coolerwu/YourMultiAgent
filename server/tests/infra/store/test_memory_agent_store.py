@@ -5,7 +5,7 @@ MemoryAgentStore CRUD 单测。
 """
 
 import pytest
-from server.domain.agent.entity.agent_entity import GraphEntity
+from server.domain.agent.agent_entity import GraphEntity
 from server.infra.store.memory_agent_store import MemoryAgentStore
 
 

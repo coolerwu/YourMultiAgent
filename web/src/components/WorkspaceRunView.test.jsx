@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import WorkspaceRunView from './WorkspaceRunView'
 
 vi.mock('lottie-react', () => ({
@@ -23,6 +23,10 @@ vi.mock('../utils/workspaceApi', () => ({
 }))
 
 describe('WorkspaceRunView', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     workspaceApiMock.getOrchestration.mockResolvedValue({
@@ -120,5 +124,22 @@ describe('WorkspaceRunView', () => {
     expect(message?.getAttribute('style')).toContain('overflow-wrap: anywhere')
     expect(message?.getAttribute('style')).toContain('word-break: break-word')
     expect(message?.getAttribute('style')).toContain('min-width: 0')
+  })
+
+  it('renders streamed step_changed events and current step on agent card', async () => {
+    workspaceApiMock.run.mockImplementation(async (_workspaceId, _payload, onChunk) => {
+      onChunk({ type: 'worker_start', node: 'worker-1', node_name: '研发', actor_name: '研发' })
+      onChunk({ type: 'step_changed', node: 'worker-1', node_name: '研发', actor_name: '研发', step: 'execute' })
+    })
+
+    render(<WorkspaceRunView workspace={{ id: 'ws-1', llm_profiles: [] }} />)
+
+    await screen.findByText('历史会话')
+    const input = screen.getByPlaceholderText('输入任务，交给主控智能体...（Ctrl+Enter 发送）')
+    fireEvent.change(input, { target: { value: '实现页面' } })
+    fireEvent.click(screen.getByRole('button', { name: /发送/ }))
+
+    expect(await screen.findByText('进入步骤：执行')).toBeInTheDocument()
+    expect(await screen.findByTestId('agent-step-worker-1')).toHaveTextContent('Step: 执行')
   })
 })

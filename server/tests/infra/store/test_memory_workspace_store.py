@@ -6,7 +6,7 @@ MemoryWorkspaceStore 单元测试：CRUD 正常路径 + 边界 case。
 
 import pytest
 
-from server.domain.agent.entity.agent_entity import LLMProvider, WorkspaceEntity
+from server.domain.agent.agent_entity import LLMProvider, WorkspaceEntity
 from server.infra.store.memory_workspace_store import MemoryWorkspaceStore
 
 

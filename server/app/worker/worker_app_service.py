@@ -4,9 +4,9 @@ app/worker/worker_app_service.py
 Worker 应用服务：查询已注册的 capability 列表。
 """
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.gateway.worker_gateway import WorkerGateway
-from server.domain.worker.entity.worker_entity import WorkerInfoEntity
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_gateway import WorkerGateway
+from server.domain.worker.worker_entity import WorkerInfoEntity
 
 
 class WorkerAppService:

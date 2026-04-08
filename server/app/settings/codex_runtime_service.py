@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from server.domain.agent.entity.agent_entity import CodexConnectionEntity
-from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
+from server.domain.agent.agent_entity import CodexConnectionEntity
+from server.domain.agent.workspace_gateway import WorkspaceGateway
 from server.infra.codex.codex_cli import (
     build_install_command,
     build_install_manual_command,

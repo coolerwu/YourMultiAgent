@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.entity.worker_entity import WorkerMetaEntity
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_entity import WorkerMetaEntity
 from server.infra.worker.remote_worker_proxy import RemoteWorkerProxy
 
 

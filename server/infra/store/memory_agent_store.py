@@ -7,8 +7,8 @@ AgentGateway 的内存实现。
 
 from typing import Optional
 
-from server.domain.agent.entity.agent_entity import GraphEntity
-from server.domain.agent.gateway.agent_gateway import AgentGateway
+from server.domain.agent.agent_entity import GraphEntity
+from server.domain.agent.agent_gateway import AgentGateway
 
 
 class MemoryAgentStore(AgentGateway):

@@ -1,5 +1,5 @@
 """
-domain/agent/gateway/workspace_gateway.py
+domain/agent/workspace_gateway.py
 
 Workspace 存储的抽象接口。
 """
@@ -7,7 +7,7 @@ Workspace 存储的抽象接口。
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from server.domain.agent.entity.agent_entity import GlobalSettingsEntity, WorkspaceEntity
+from server.domain.agent.agent_entity import GlobalSettingsEntity, WorkspaceEntity
 
 
 class WorkspaceGateway(ABC):

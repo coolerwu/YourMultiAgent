@@ -1,12 +1,12 @@
 """
-domain/worker/entity/worker_entity.py
+domain/worker/worker_entity.py
 
 Worker 元信息与状态值对象。
 """
 
 from dataclasses import dataclass, field
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
+from server.domain.worker.capability_entity import CapabilityEntity
 
 
 @dataclass

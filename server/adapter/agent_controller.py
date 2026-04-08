@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from server.app.agent.agent_app_service import AgentAppService
 from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
 from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
-from server.domain.agent.entity.agent_entity import LLMProvider
+from server.domain.agent.agent_entity import LLMProvider
 from server.container import get_agent_service
 
 router = APIRouter(prefix="/api/agents", tags=["Agent"])

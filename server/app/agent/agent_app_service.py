@@ -15,11 +15,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
 from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity
-from server.domain.agent.gateway.llm_gateway import LLMGateway
-from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
-from server.domain.agent.service.orchestrator import AgentOrchestrator
-from server.domain.agent.service.session_history import (
+from server.domain.agent.agent_entity import AgentEntity, ChatSessionEntity
+from server.domain.agent.llm_gateway import LLMGateway
+from server.domain.agent.workspace_gateway import WorkspaceGateway
+from server.app.agent.orchestrator import AgentOrchestrator
+from server.domain.agent.session_history import (
     append_session_message,
     build_compact_source,
     build_session_title,
@@ -165,7 +165,7 @@ class AgentAppService:
                         actor_name=chunk.get("actor_name", ""),
                         node=chunk.get("node", ""),
                     )
-                elif chunk_type in {"plan_created", "task_assigned", "worker_result", "tool_start", "tool_end"}:
+                elif chunk_type in {"plan_created", "task_assigned", "worker_result", "tool_start", "tool_end", "step_changed"}:
                     append_session_message(
                         session,
                         role="event",
@@ -632,6 +632,9 @@ def _event_to_content(event: dict) -> str:
         return f"调用工具 {event.get('tool', '')}"
     if event_type == "tool_end":
         return f"工具 {event.get('tool', '')} 返回：{event.get('result', '')}"
+    if event_type == "step_changed":
+        step = str(event.get("step", "")).strip()
+        return f"进入步骤：{step}" if step else "步骤已切换"
     return str(event)
 
 

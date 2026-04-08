@@ -1,5 +1,5 @@
 """
-domain/agent/service/session_history.py
+domain/agent/session_history.py
 
 会话历史、自动 compact 与 memory 提取的工具。
 """
@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 from langchain_core.messages import HumanMessage
 
-from server.domain.agent.entity.agent_entity import ChatMessageEntity, ChatSessionEntity, MemoryItemEntity
+from server.domain.agent.agent_entity import ChatMessageEntity, ChatSessionEntity, MemoryItemEntity
 
 RECENT_MESSAGE_WINDOW = 12
 COMPACT_MESSAGE_THRESHOLD = 24

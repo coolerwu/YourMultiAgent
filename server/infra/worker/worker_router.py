@@ -13,9 +13,9 @@ WorkerRouter：实现 WorkerGateway，聚合本机 LocalWorker + 所有远程 Wo
 from pathlib import Path
 from typing import Any
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.entity.worker_entity import WorkerInfoEntity
-from server.domain.worker.gateway.worker_gateway import WorkerGateway
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_entity import WorkerInfoEntity
+from server.domain.worker.worker_gateway import WorkerGateway
 from server.infra.store.workspace_json import read_json, write_json
 from server.infra.worker.local_worker import LocalWorker
 from server.infra.worker.remote_worker_proxy import RemoteWorkerProxy

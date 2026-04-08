@@ -19,7 +19,7 @@ from server.app.settings.codex_runtime_service import CodexRuntimeService
 from server.app.settings.update_now_service import UpdateNowService
 from server.app.worker.worker_app_service import WorkerAppService
 from server.config import get_data_dir
-from server.domain.agent.service.orchestrator import AgentOrchestrator
+from server.app.agent.orchestrator import AgentOrchestrator
 from server.infra.llm.llm_factory import LangChainLLMFactory
 from server.infra.store.json_workspace_store import JsonWorkspaceStore
 from server.infra.worker.local_worker import LocalWorker

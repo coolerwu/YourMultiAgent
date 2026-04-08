@@ -29,15 +29,32 @@ function resolveAgentModel(agent, workspace) {
   return agent.model
 }
 
+function formatStepLabel(step) {
+  if (!step) return '待机'
+  const labels = {
+    step: '初始化',
+    decide: '决策',
+    execute: '执行',
+    transition: '切换',
+    finalize: '收束',
+  }
+  return labels[step] || step
+}
+
 function AgentCard({ agent, state, workspace }) {
-  const animation = state === 'working' ? WORKING_ANIM : state === 'done' ? DONE_ANIM : IDLE_ANIM
+  const status = state?.status || 'idle'
+  const step = state?.step || ''
+  const animation = status === 'working' ? WORKING_ANIM : status === 'done' ? DONE_ANIM : IDLE_ANIM
   return (
-    <div style={{ width: 156, borderRadius: 14, border: `2px solid ${state === 'working' ? '#1677ff' : state === 'done' ? '#52c41a' : '#d9d9d9'}`, background: state === 'working' ? '#e6f4ff' : state === 'done' ? '#f6ffed' : '#fafafa', padding: '16px 10px 12px', textAlign: 'center' }}>
-      <Lottie animationData={animation} loop={state !== 'done'} autoplay style={{ width: 80, height: 80, margin: '0 auto' }} />
+    <div style={{ width: 156, borderRadius: 14, border: `2px solid ${status === 'working' ? '#1677ff' : status === 'done' ? '#52c41a' : '#d9d9d9'}`, background: status === 'working' ? '#e6f4ff' : status === 'done' ? '#f6ffed' : '#fafafa', padding: '16px 10px 12px', textAlign: 'center' }}>
+      <Lottie animationData={animation} loop={status !== 'done'} autoplay style={{ width: 80, height: 80, margin: '0 auto' }} />
       <div style={{ fontWeight: 600, fontSize: 14, marginTop: 6 }}>{agent.name}</div>
       <div style={{ fontSize: 11, color: '#999' }}>{resolveAgentModel(agent, workspace)}</div>
-      <div style={{ fontSize: 11, color: state === 'working' ? '#1677ff' : state === 'done' ? '#52c41a' : '#bbb' }}>
-        {state === 'working' ? '执行中...' : state === 'done' ? '完成 ✓' : '待机'}
+      <div style={{ fontSize: 11, color: status === 'working' ? '#1677ff' : status === 'done' ? '#52c41a' : '#bbb' }}>
+        {status === 'working' ? '执行中...' : status === 'done' ? '完成 ✓' : '待机'}
+      </div>
+      <div style={{ fontSize: 11, color: '#666', marginTop: 4 }} data-testid={`agent-step-${agent.id}`}>
+        {status === 'working' ? `Step: ${formatStepLabel(step)}` : `Step: ${formatStepLabel(step)}`}
       </div>
     </div>
   )
@@ -101,7 +118,7 @@ export default function WorkspaceRunView({ workspace }) {
 
   useEffect(() => {
     const next = {}
-    participants.forEach((agent) => { next[agent.id] = 'idle' })
+    participants.forEach((agent) => { next[agent.id] = { status: 'idle', step: '' } })
     setStates(next)
   }, [orchestration])
 
@@ -262,13 +279,23 @@ export default function WorkspaceRunView({ workspace }) {
               break
             case 'coordinator_start':
             case 'worker_start':
-              setStates((prev) => ({ ...prev, [chunk.node]: 'working' }))
+              setStates((prev) => ({ ...prev, [chunk.node]: { status: 'working', step: '' } }))
               append({ role: 'event', actor_name: chunk.actor_name, content: `▶ ${chunk.node_name} 开始执行`, node: chunk.node, node_name: chunk.node_name })
               setMessages((prev) => [...prev, { role: 'assistant', content: '', node: chunk.node, node_name: chunk.node_name, actor_name: chunk.actor_name }])
               break
             case 'coordinator_end':
             case 'worker_end':
-              setStates((prev) => ({ ...prev, [chunk.node]: 'done' }))
+              setStates((prev) => ({ ...prev, [chunk.node]: { status: 'done', step: prev[chunk.node]?.step || '' } }))
+              break
+            case 'step_changed':
+              setStates((prev) => ({
+                ...prev,
+                [chunk.node]: {
+                  status: prev[chunk.node]?.status || 'working',
+                  step: chunk.step || '',
+                },
+              }))
+              append({ role: 'event', actor_name: chunk.actor_name, content: `进入步骤：${formatStepLabel(chunk.step)}`, node: chunk.node, node_name: chunk.node_name, kind: 'step_changed' })
               break
             case 'task_assigned':
               append({ role: 'event', actor_name: chunk.actor_name, content: `已分派给 ${chunk.worker_name}：${chunk.assignment}` })

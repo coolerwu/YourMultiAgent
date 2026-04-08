@@ -23,7 +23,7 @@ from server.app.agent.workspace_app_service import (
     WorkspaceAppService,
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
-from server.domain.agent.entity.agent_entity import LLMProvider, WorkspaceKind
+from server.domain.agent.agent_entity import LLMProvider, WorkspaceKind
 from server.container import get_workspace_service
 
 class LLMProfileReq(BaseModel):

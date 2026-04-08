@@ -16,8 +16,8 @@ WebSocket 端点 /ws/worker：
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from server.container import get_worker_router
-from server.domain.worker.entity.capability_entity import CapabilityEntity, ParameterSchema
-from server.domain.worker.entity.worker_entity import WorkerMetaEntity
+from server.domain.worker.capability_entity import CapabilityEntity, ParameterSchema
+from server.domain.worker.worker_entity import WorkerMetaEntity
 from server.infra.worker.remote_worker_proxy import RemoteWorkerProxy
 from server.infra.worker.worker_router import WorkerRouter
 

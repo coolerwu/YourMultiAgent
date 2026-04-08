@@ -1,16 +1,16 @@
 """
-domain/agent/service/orchestrator.py
+app/agent/orchestrator.py
 
-AgentOrchestrator：WorkspaceExecutor 的薄包装，负责 work_dir 注入。
-yield 事件以 Workspace 单编排运行语义为主。
+AgentOrchestrator：WorkspaceExecutor 的薄包装。
+位于 app 层，负责组装依赖并暴露 Workspace 级运行入口。
 """
 
 from typing import AsyncGenerator, Optional
 
-from server.domain.agent.entity.agent_entity import ChatSessionEntity, WorkspaceEntity
-from server.domain.agent.gateway.llm_gateway import LLMGateway
-from server.domain.agent.service.workspace_executor import WorkspaceExecutor
-from server.domain.worker.gateway.worker_gateway import WorkerGateway
+from server.domain.agent.agent_entity import ChatSessionEntity, WorkspaceEntity
+from server.domain.agent.llm_gateway import LLMGateway
+from server.app.agent.workspace_executor import WorkspaceExecutor
+from server.domain.worker.worker_gateway import WorkerGateway
 
 
 class AgentOrchestrator:

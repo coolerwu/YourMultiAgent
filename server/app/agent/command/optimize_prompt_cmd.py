@@ -6,7 +6,7 @@ app/agent/command/optimize_prompt_cmd.py
 
 from dataclasses import dataclass, field
 
-from server.domain.agent.entity.agent_entity import LLMProvider
+from server.domain.agent.agent_entity import LLMProvider
 
 
 @dataclass

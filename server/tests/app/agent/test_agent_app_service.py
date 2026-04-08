@@ -12,7 +12,7 @@ import server.app.agent.agent_app_service as agent_app_service_module
 from server.app.agent.agent_app_service import AgentAppService
 from server.app.agent.command.generate_worker_cmd import GenerateWorkerCmd
 from server.app.agent.command.optimize_prompt_cmd import OptimizePromptCmd
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.agent_entity import AgentEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
 
 
 @pytest.fixture
@@ -110,6 +110,38 @@ async def test_run_workspace_reuses_existing_session(svc, mock_workspace_gateway
 
 
 @pytest.mark.asyncio
+async def test_run_workspace_persists_step_changed_event(mock_llm_gateway, mock_workspace_gateway):
+    orchestrator = MagicMock()
+
+    async def _run(_workspace, _user_message, _session):
+        yield {"type": "step_changed", "node": "coordinator", "actor_id": "coordinator", "actor_name": "主控", "step": "decide"}
+        yield {"type": "done"}
+
+    orchestrator.run = _run
+    svc = AgentAppService(orchestrator, mock_llm_gateway, mock_workspace_gateway)
+
+    workspace = WorkspaceEntity(
+        id="ws1",
+        name="Demo",
+        work_dir="/tmp/demo",
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控。",
+        ),
+    )
+    mock_workspace_gateway.find_by_id.return_value = workspace
+
+    events = [event async for event in svc.run_workspace("ws1", "继续")]
+
+    assert events[-1]["type"] == "done"
+    session = workspace.sessions[0]
+    assert any(message.kind == "step_changed" and message.content == "进入步骤：decide" for message in session.messages)
+
+
+@pytest.mark.asyncio
 async def test_run_chat_workspace_keeps_chat_kind_and_updates_session(svc, mock_workspace_gateway):
     workspace = WorkspaceEntity(
         id="chat-1",
@@ -135,7 +167,7 @@ async def test_run_chat_workspace_keeps_chat_kind_and_updates_session(svc, mock_
 
 @pytest.mark.asyncio
 async def test_run_workspace_uses_llm_compact_for_long_session(svc, mock_workspace_gateway, mock_llm_gateway):
-    from server.domain.agent.service.session_history import append_session_message
+    from server.domain.agent.session_history import append_session_message
 
     session = ChatSessionEntity(
         id="session-1",

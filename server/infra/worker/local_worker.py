@@ -7,9 +7,9 @@ invoke 支持 context 参数，用于注入 work_dir 等运行时信息。
 
 from typing import Any
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.entity.worker_entity import WorkerInfoEntity
-from server.domain.worker.gateway.worker_gateway import WorkerGateway
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_entity import WorkerInfoEntity
+from server.domain.worker.worker_gateway import WorkerGateway
 from server.infra.worker import registry
 
 

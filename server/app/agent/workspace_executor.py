@@ -1,10 +1,12 @@
 """
-domain/agent/service/workspace_executor.py
+app/agent/workspace_executor.py
 
 Workspace 单编排执行器：
 - 先运行 Coordinator 生成拆解计划
 - 再按顺序调度多个 Worker
 - 共享交接物约定写入 Workspace 根目录下的 shared/
+
+位于 app 层，负责运行流程编排，不承载纯领域规则定义。
 """
 
 from __future__ import annotations
@@ -14,12 +16,12 @@ from typing import AsyncGenerator
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, WorkspaceEntity, WorkspaceKind
-from server.domain.agent.gateway.llm_gateway import LLMGateway
-from server.domain.agent.service.react_loop import ReactLoop
-from server.domain.agent.service.session_history import build_runtime_messages
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.gateway.worker_gateway import WorkerGateway
+from server.domain.agent.agent_entity import AgentEntity, ChatSessionEntity, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.llm_gateway import LLMGateway
+from server.domain.agent.agent_harness import AgentHarness
+from server.domain.agent.session_history import build_runtime_messages
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_gateway import WorkerGateway
 from server.support.app_logging import get_logger
 
 _MAX_TOOL_ROUNDS = 8
@@ -149,7 +151,7 @@ class WorkspaceExecutor:
             agent.provider,
             agent.model,
         )
-        loop = ReactLoop(
+        harness = AgentHarness(
             node_id=agent.id,
             agent_name=agent.name,
             provider=str(agent.provider),
@@ -172,7 +174,7 @@ class WorkspaceExecutor:
             len(runtime_messages),
             len(user_message or ""),
         )
-        async for event in loop.run([
+        async for event in harness.run([
             SystemMessage(content=_build_agent_system_prompt(agent, capabilities)),
             *runtime_messages,
             HumanMessage(content=user_message),

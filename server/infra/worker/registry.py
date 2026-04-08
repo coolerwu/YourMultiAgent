@@ -16,7 +16,7 @@ import inspect
 import pkgutil
 from typing import Any, Callable
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity, ParameterSchema
+from server.domain.worker.capability_entity import CapabilityEntity, ParameterSchema
 
 # 全局注册表：capability_name → (CapabilityEntity, 函数)
 _REGISTRY: dict[str, tuple[CapabilityEntity, Callable]] = {}

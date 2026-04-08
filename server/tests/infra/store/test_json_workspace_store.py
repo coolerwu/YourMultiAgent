@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity, WorkspaceKind
 from server.infra.store.json_workspace_store import JsonWorkspaceStore
 from server.infra.store.workspace_json import setting_path, workspace_file_path
 

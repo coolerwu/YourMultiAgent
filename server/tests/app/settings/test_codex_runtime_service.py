@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from server.app.settings.codex_runtime_service import CodexRuntimeService
-from server.domain.agent.entity.agent_entity import CodexConnectionEntity, GlobalSettingsEntity
+from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity
 
 
 def _make_gateway(connection: CodexConnectionEntity):

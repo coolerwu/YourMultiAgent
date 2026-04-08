@@ -1,5 +1,5 @@
 """
-domain/worker/gateway/worker_gateway.py
+domain/worker/worker_gateway.py
 
 Worker 调用的抽象接口。
 domain 层通过此接口调用 capability，不感知本机/远程差异。
@@ -8,8 +8,8 @@ domain 层通过此接口调用 capability，不感知本机/远程差异。
 from abc import ABC, abstractmethod
 from typing import Any
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.entity.worker_entity import WorkerInfoEntity
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_entity import WorkerInfoEntity
 
 
 class WorkerGateway(ABC):

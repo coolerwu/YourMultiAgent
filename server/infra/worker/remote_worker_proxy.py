@@ -17,9 +17,9 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
-from server.domain.worker.entity.worker_entity import WorkerInfoEntity, WorkerMetaEntity
-from server.domain.worker.gateway.worker_gateway import WorkerGateway
+from server.domain.worker.capability_entity import CapabilityEntity
+from server.domain.worker.worker_entity import WorkerInfoEntity, WorkerMetaEntity
+from server.domain.worker.worker_gateway import WorkerGateway
 
 
 class RemoteWorkerProxy(WorkerGateway):

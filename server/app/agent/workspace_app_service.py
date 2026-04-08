@@ -10,7 +10,7 @@ from pathlib import Path
 
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
 from server.config import get_data_dir
-from server.domain.agent.entity.agent_entity import (
+from server.domain.agent.agent_entity import (
     AgentEntity,
     ChatSessionEntity,
     CodexConnectionEntity,
@@ -20,8 +20,8 @@ from server.domain.agent.entity.agent_entity import (
     WorkspaceKind,
     WorkspaceEntity,
 )
-from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
-from server.domain.agent.service.session_history import create_session
+from server.domain.agent.workspace_gateway import WorkspaceGateway
+from server.domain.agent.session_history import create_session
 
 
 @dataclass

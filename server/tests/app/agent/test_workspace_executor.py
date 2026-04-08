@@ -1,5 +1,5 @@
 """
-tests/domain/agent/service/test_workspace_executor.py
+tests/app/agent/test_workspace_executor.py
 
 WorkspaceExecutor 单测：覆盖 Worker 顺序与执行者事件。
 """
@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
-from server.domain.agent.service.workspace_executor import WorkspaceExecutor, _build_agent_system_prompt
-from server.domain.worker.entity.capability_entity import CapabilityEntity
+from server.domain.agent.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
+from server.app.agent.workspace_executor import WorkspaceExecutor, _build_agent_system_prompt
+from server.domain.worker.capability_entity import CapabilityEntity
 
 
 class FakeLLM:

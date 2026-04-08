@@ -6,7 +6,7 @@ AI 生成 Worker 草稿的命令对象。
 
 from dataclasses import dataclass, field
 
-from server.domain.agent.entity.agent_entity import LLMProvider
+from server.domain.agent.agent_entity import LLMProvider
 
 
 @dataclass

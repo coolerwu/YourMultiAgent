@@ -10,7 +10,7 @@ import dataclasses
 import json
 from pathlib import Path
 
-from server.domain.agent.entity.agent_entity import (
+from server.domain.agent.agent_entity import (
     AgentEntity,
     ChatMessageEntity,
     ChatSessionEntity,

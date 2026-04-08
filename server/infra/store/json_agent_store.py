@@ -10,8 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from server.domain.agent.entity.agent_entity import GraphEntity
-from server.domain.agent.gateway.agent_gateway import AgentGateway
+from server.domain.agent.agent_entity import GraphEntity
+from server.domain.agent.agent_gateway import AgentGateway
 from server.infra.store.workspace_json import (
     load_setting_entries,
     load_workspace_payload,

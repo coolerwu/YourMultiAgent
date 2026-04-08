@@ -1,5 +1,5 @@
-from server.domain.agent.entity.agent_entity import ChatMessageEntity, ChatSessionEntity, MemoryItemEntity
-from server.domain.agent.service.session_history import build_runtime_messages
+from server.domain.agent.agent_entity import ChatMessageEntity, ChatSessionEntity, MemoryItemEntity
+from server.domain.agent.session_history import build_runtime_messages
 
 
 def test_build_runtime_messages_excludes_error_and_event_entries():

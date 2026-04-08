@@ -12,7 +12,7 @@ from server.app.settings.app_log_service import AppLogService
 from server.app.agent.workspace_app_service import WorkspaceAppService
 from server.app.settings.codex_runtime_service import CodexRuntimeService
 from server.container import get_app_log_service, get_codex_runtime_service, get_workspace_service
-from server.domain.agent.entity.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider
+from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 

@@ -290,7 +290,6 @@ export default function Dashboard() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
             gap: 8,
             padding: '8px 6px 16px',
             borderBottom: '1px solid #eaecf0',
@@ -317,9 +316,6 @@ export default function Dashboard() {
               <div style={{ fontSize: 12, color: '#667085', marginTop: 3 }}>单主控 + 多 Worker</div>
             </div>
           </Space>
-          <Tooltip title="新建 Workspace">
-            <Button icon={<PlusOutlined />} size="middle" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
-          </Tooltip>
         </div>
 
         <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -351,8 +347,11 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <div style={{ marginBottom: 12, padding: '0 4px' }}>
+        <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>WORKSPACES</Text>
+          <Tooltip title="新建 Workspace">
+            <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
+          </Tooltip>
         </div>
 
         <div>

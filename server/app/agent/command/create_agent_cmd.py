@@ -8,7 +8,7 @@ app/agent/command/create_agent_cmd.py
 from dataclasses import dataclass, field
 from typing import Optional
 
-from server.domain.agent.entity.agent_entity import EdgeCondition, LLMProvider
+from server.domain.agent.agent_entity import EdgeCondition, LLMProvider
 
 
 @dataclass

@@ -1,5 +1,5 @@
 """
-domain/agent/entity/agent_entity.py
+domain/agent/agent_entity.py
 
 Agent 配置实体、Graph 结构值对象、Workspace 实体。
 AgentEntity     — 单个 Agent / Worker 配置（含 api_key 覆盖）

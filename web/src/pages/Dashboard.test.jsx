@@ -145,7 +145,7 @@ describe('Dashboard', () => {
       expect(workspaceApiMock.list).toHaveBeenCalled()
     })
 
-    fireEvent.click(screen.getByRole('tab', { name: '配置' }))
+    fireEvent.click(await screen.findByRole('tab', { name: '配置' }))
 
     expect(await screen.findByText('单聊助手')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /编\s*辑/ })).toBeInTheDocument()

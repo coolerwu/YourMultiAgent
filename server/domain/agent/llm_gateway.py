@@ -1,5 +1,5 @@
 """
-domain/agent/gateway/llm_gateway.py
+domain/agent/llm_gateway.py
 
 LLM 构建的抽象接口。
 domain 层通过此接口获取 LLM 实例，不依赖具体 SDK。
@@ -7,7 +7,7 @@ domain 层通过此接口获取 LLM 实例，不依赖具体 SDK。
 
 from abc import ABC, abstractmethod
 
-from server.domain.agent.entity.agent_entity import AgentEntity, WorkspaceEntity
+from server.domain.agent.agent_entity import AgentEntity, WorkspaceEntity
 
 
 class LLMGateway(ABC):

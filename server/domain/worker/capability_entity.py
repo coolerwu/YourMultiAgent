@@ -1,5 +1,5 @@
 """
-domain/worker/entity/capability_entity.py
+domain/worker/capability_entity.py
 
 Worker Capability 值对象。
 描述一个 Worker 能做什么事（函数签名 + 元数据）。

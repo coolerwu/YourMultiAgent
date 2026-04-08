@@ -6,8 +6,8 @@ WorkspaceGateway 的内存实现。
 
 from typing import Optional
 
-from server.domain.agent.entity.agent_entity import GlobalSettingsEntity, WorkspaceEntity
-from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
+from server.domain.agent.agent_entity import GlobalSettingsEntity, WorkspaceEntity
+from server.domain.agent.workspace_gateway import WorkspaceGateway
 
 
 class MemoryWorkspaceStore(WorkspaceGateway):

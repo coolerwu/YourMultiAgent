@@ -1,7 +1,5 @@
 import asyncio
 import json
-from pathlib import Path
-
 import pytest
 from langchain_core.messages import HumanMessage
 
@@ -81,6 +79,15 @@ def test_format_codex_error_explains_forbidden_request():
     assert "403 Request not allowed" in message
 
 
+def test_format_codex_error_explains_sandbox_denial():
+    message = _format_codex_error(
+        "",
+        "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
+    )
+
+    assert "宿主机不允许 Codex 的 read-only sandbox" in message
+
+
 class _BlockingProcess:
     def __init__(self) -> None:
         self.returncode = None
@@ -101,20 +108,27 @@ class _BlockingProcess:
 
 
 class _SuccessProcess:
-    def __init__(self, output_path: Path, payload: dict | None = None) -> None:
+    def __init__(self, payload: dict | None = None) -> None:
         self.returncode = 0
-        self._output_path = output_path
         self._payload = payload or {"content": "ok"}
 
     async def communicate(self):
-        self._output_path.write_text(json.dumps(self._payload, ensure_ascii=False), encoding="utf-8")
-        return b"", b""
+        jsonl = (
+            '{"type":"thread.started","thread_id":"thread-1"}\n'
+            '{"type":"turn.started"}\n'
+            f'{{"type":"item.completed","item":{{"id":"item_1","type":"agent_message","text":{self._quoted_payload()}}}}}\n'
+            '{"type":"turn.completed"}\n'
+        )
+        return jsonl.encode("utf-8"), b""
 
     def kill(self) -> None:  # pragma: no cover - success path should not kill
         self.returncode = -9
 
     async def wait(self):  # pragma: no cover - success path should not wait
         return self.returncode
+
+    def _quoted_payload(self) -> str:
+        return json.dumps(json.dumps(self._payload, ensure_ascii=False), ensure_ascii=False)
 
 
 class _RawProcess:
@@ -180,11 +194,9 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
 
     async def _fake_create_subprocess_exec(*command_args, **_kwargs):
         calls["count"] += 1
-        args = list(command_args)
-        output_path = Path(args[args.index("-o") + 1])
         if calls["count"] == 1:
             return first
-        return _SuccessProcess(output_path, payload={"content": "第二次成功"})
+        return _SuccessProcess(payload={"content": "第二次成功", "tool_calls": []})
 
     monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
     monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 0.01)
@@ -202,24 +214,46 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
 async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch):
     captured = {}
 
-    async def _fake_create_subprocess_shell(cmd, **kwargs):
-        captured["cmd"] = cmd
-        captured["kwargs"] = kwargs
-        return _RawProcess(
-            "OpenAI Codex v0.118.0\n--------\nuser\nhello\ncodex\n你好\ntokens used\n123\n"
-        )
+    # 模拟 --json 模式的 JSONL 输出
+    jsonl_output = (
+        '{"type":"message","role":"assistant","content":"你好呀"}\n'
+        '{"type":"done"}\n'
+    )
 
-    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_shell", _fake_create_subprocess_shell)
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = list(args)
+        captured["kwargs"] = kwargs
+        return _RawProcess(jsonl_output)
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
     adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
 
     result = await adapter.ainvoke([HumanMessage(content="hello")])
 
-    assert result.content == "你好"
-    # simple 模式使用 shell 执行，所有参数用 shlex.quote 包裹
-    assert "codex" in captured["cmd"]
-    assert "exec" in captured["cmd"]
-    # prompt 被单引号包裹（shlex.quote 使用单引号）
-    # prompt 包含 "[human]" 标记
-    assert "[human]" in captured["cmd"]
-    # 不使用 stdin PIPE
+    assert result.content == "你好呀"
+    assert captured["args"][0] == "codex"
+    assert "exec" in captured["args"]
+    assert "--json" in captured["args"]
+    assert any("[human]" in arg for arg in captured["args"])
     assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_parses_actual_codex_jsonl_event(monkeypatch):
+    jsonl_output = (
+        '{"type":"thread.started","thread_id":"019d6dc0-e939-75d3-937b-ae0e9c870dad"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"先给一条中间说明"}}\n'
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"最终回答正文"}}\n'
+        '{"type":"turn.completed"}\n'
+    )
+
+    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+        return _RawProcess(jsonl_output)
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
+
+    result = await adapter.ainvoke([HumanMessage(content="hello")])
+
+    assert result.content == "最终回答正文"

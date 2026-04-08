@@ -19,7 +19,7 @@ from typing import Any
 
 import websockets
 
-from server.domain.worker.entity.capability_entity import CapabilityEntity
+from server.domain.worker.capability_entity import CapabilityEntity
 from server.infra.worker import registry
 from server.infra.worker.registry import scan_handlers
 

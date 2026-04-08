@@ -67,12 +67,12 @@ flowchart LR
 ## 对应代码位置
 
 - 主控与执行器
-  - `server/domain/agent/service/orchestrator.py`
-  - `server/domain/agent/service/workspace_executor.py`
-- 单节点工具循环
-  - `server/domain/agent/service/react_loop.py`
+  - `server/app/agent/orchestrator.py`
+  - `server/app/agent/workspace_executor.py`
+- 单节点 Agent 运行时
+  - `server/domain/agent/agent_harness.py`
 - 会话历史
-  - `server/domain/agent/service/session_history.py`
+  - `server/domain/agent/session_history.py`
 - Worker 抽象与路由
-  - `server/domain/worker/gateway/worker_gateway.py`
+  - `server/domain/worker/worker_gateway.py`
   - `server/infra/worker/worker_router.py`
