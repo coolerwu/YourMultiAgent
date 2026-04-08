@@ -93,6 +93,23 @@ function normalizeAgentForRuntime(agent, workspaceDefaults) {
     llm_profile_id: '',
   }
 }
+
+function applyRuntimeSelection(values, workspaceDefaults, runtimeTypeHint = '') {
+  const runtimeType = runtimeTypeHint || values.runtime_type || 'llm'
+  if (runtimeType === 'codex') {
+    return {
+      ...values,
+      provider: 'openai_codex',
+      model: String(values.model ?? '').trim(),
+    }
+  }
+  const llmProvider = resolveLlmProvider(workspaceDefaults, values.provider)
+  return {
+    ...values,
+    provider: llmProvider,
+    model: resolveLlmModel(llmProvider, workspaceDefaults, values.model),
+  }
+}
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
   const modelLabel = data.codex_connection_name || data.llm_profile_name || data.model
@@ -318,7 +335,9 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
 
   // 保存节点编辑
   const saveNode = () => {
-    nodeForm.validateFields().then(vals => {
+    nodeForm.validateFields().then(() => {
+      const runtimeType = nodeForm.getFieldValue('runtime_type')
+      const vals = applyRuntimeSelection(nodeForm.getFieldsValue(true), workspaceDefaults, runtimeType)
       const currentNode = nodes.find(n => n.id === nodeModal.nodeId)
       const currentData = currentNode?.data ?? {}
       const nextData = normalizeAgentForRuntime({

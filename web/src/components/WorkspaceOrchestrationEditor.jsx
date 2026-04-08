@@ -12,7 +12,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { graphApi, workerApi } from '../utils/graphApi'
 import { workspaceApi } from '../utils/workspaceApi'
 
@@ -130,6 +130,23 @@ function normalizeAgentForWorkspace(agent, workspace, role) {
   return agent
 }
 
+function applyRuntimeSelection(values, workspace, runtimeTypeHint = '') {
+  const runtimeType = runtimeTypeHint || values.runtime_type || 'llm'
+  if (runtimeType === 'codex') {
+    return {
+      ...values,
+      provider: 'openai_codex',
+      model: String(values.model ?? '').trim(),
+    }
+  }
+  const llmProvider = resolveLlmProvider(workspace, values.provider)
+  return {
+    ...values,
+    provider: llmProvider,
+    model: resolveLlmModel(llmProvider, workspace, values.model),
+  }
+}
+
 export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
   const isChat = workspace?.kind === 'chat'
   const [loading, setLoading] = useState(false)
@@ -137,6 +154,8 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
   const [capabilities, setCapabilities] = useState([])
   const [coordinator, setCoordinator] = useState(emptyAgent(workspace, 'coordinator'))
   const [workers, setWorkers] = useState([])
+  const coordinatorRef = useRef(coordinator)
+  const workersRef = useRef(workers)
   const [editing, setEditing] = useState({ open: false, role: 'worker', index: -1 })
   const [generatingWorker, setGeneratingWorker] = useState(false)
   const [workerGenerator, setWorkerGenerator] = useState({
@@ -163,8 +182,12 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     setLoading(true)
     workspaceApi.getOrchestration(workspace.id)
       .then((result) => {
-        setCoordinator(result.coordinator ?? emptyAgent(workspace, 'coordinator'))
-        setWorkers(sortWorkers(result.workers ?? []))
+        const nextCoordinator = result.coordinator ?? emptyAgent(workspace, 'coordinator')
+        const nextWorkers = sortWorkers(result.workers ?? [])
+        coordinatorRef.current = nextCoordinator
+        workersRef.current = nextWorkers
+        setCoordinator(nextCoordinator)
+        setWorkers(nextWorkers)
       })
       .catch((e) => message.error(e.message))
       .finally(() => setLoading(false))
@@ -187,7 +210,9 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
   }
 
   const saveAgent = async () => {
-    const values = await form.validateFields()
+    await form.validateFields()
+    const runtimeType = form.getFieldValue('runtime_type')
+    const values = applyRuntimeSelection(form.getFieldsValue(true), workspace, runtimeType)
     const baseAgent = editing.role === 'coordinator'
       ? coordinator
       : workers[editing.index] ?? emptyAgent(workspace, 'worker')
@@ -197,16 +222,25 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     }, workspace), workspace, editing.role)
     delete nextAgent.runtime_type
     if (editing.role === 'coordinator') {
+      coordinatorRef.current = nextAgent
       setCoordinator(nextAgent)
     } else if (editing.index >= 0) {
-      setWorkers((prev) => normalizeWorkerOrder(prev.map((item, index) => (
-        index === editing.index ? { ...nextAgent, order: item.order } : item
-      ))))
+      setWorkers((prev) => {
+        const nextWorkers = normalizeWorkerOrder(prev.map((item, index) => (
+          index === editing.index ? { ...nextAgent, order: item.order } : item
+        )))
+        workersRef.current = nextWorkers
+        return nextWorkers
+      })
     } else {
-      setWorkers((prev) => normalizeWorkerOrder([
-        ...prev,
-        { ...nextAgent, id: nextAgent.id || `worker_${Date.now()}`, order: prev.length + 1 },
-      ]))
+      setWorkers((prev) => {
+        const nextWorkers = normalizeWorkerOrder([
+          ...prev,
+          { ...nextAgent, id: nextAgent.id || `worker_${Date.now()}`, order: prev.length + 1 },
+        ])
+        workersRef.current = nextWorkers
+        return nextWorkers
+      })
     }
     setEditing({ open: false, role: 'worker', index: -1 })
   }
@@ -241,7 +275,11 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
         id: item.id || `worker_${Date.now()}_${index}`,
         order: workers.length + index + 1,
       }))
-      setWorkers((prev) => normalizeWorkerOrder([...prev, ...generatedWorkers]))
+      setWorkers((prev) => {
+        const nextWorkers = normalizeWorkerOrder([...prev, ...generatedWorkers])
+        workersRef.current = nextWorkers
+        return nextWorkers
+      })
       setWorkerGenerator({
         open: false,
         goal: '',
@@ -259,10 +297,12 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     if (!workspace?.id) return
     setSaving(true)
     try {
-      const nextWorkers = normalizeWorkerOrder(workers)
+      const nextWorkers = normalizeWorkerOrder(workersRef.current)
+      workersRef.current = nextWorkers
       setWorkers(nextWorkers)
+      const nextCoordinator = coordinatorRef.current
       await workspaceApi.updateOrchestration(workspace.id, {
-        coordinator: { ...coordinator, order: 0 },
+        coordinator: { ...nextCoordinator, order: 0 },
         workers: nextWorkers,
       })
       message.success('编排配置已保存')
@@ -321,7 +361,9 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
       const target = index + direction
       if (target < 0 || target >= next.length) return prev
       ;[next[index], next[target]] = [next[target], next[index]]
-      return normalizeWorkerOrder(next)
+      const nextWorkers = normalizeWorkerOrder(next)
+      workersRef.current = nextWorkers
+      return nextWorkers
     })
   }
 
@@ -369,7 +411,11 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
                           size="small"
                           danger
                           icon={<DeleteOutlined />}
-                          onClick={() => setWorkers((prev) => normalizeWorkerOrder(prev.filter((_, i) => i !== index)))}
+                          onClick={() => setWorkers((prev) => {
+                            const nextWorkers = normalizeWorkerOrder(prev.filter((_, i) => i !== index))
+                            workersRef.current = nextWorkers
+                            return nextWorkers
+                          })}
                         />
                       </Space>
                     )}

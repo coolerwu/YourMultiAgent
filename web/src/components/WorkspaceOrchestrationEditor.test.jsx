@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import WorkspaceOrchestrationEditor from './WorkspaceOrchestrationEditor'
 
 async function clickCoordinatorEdit() {
@@ -32,6 +32,10 @@ vi.mock('../utils/graphApi', () => ({
 }))
 
 describe('WorkspaceOrchestrationEditor', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     Object.defineProperty(window, 'matchMedia', {
@@ -149,4 +153,5 @@ describe('WorkspaceOrchestrationEditor', () => {
     expect(await screen.findByText('当前目录根')).toBeInTheDocument()
     expect(screen.queryByText(/^chat$/)).not.toBeInTheDocument()
   })
+
 })
