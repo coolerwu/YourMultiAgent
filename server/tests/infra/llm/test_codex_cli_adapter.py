@@ -210,13 +210,21 @@ async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch
         )
 
     monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    # 禁用 shell 路径查找，直接使用固定的 shell 路径
+    monkeypatch.setattr(codex_cli_adapter.shutil, "which", lambda x: "/bin/bash" if x in ("bash", "sh") else x)
     adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
 
     result = await adapter.ainvoke([HumanMessage(content="hello")])
 
     assert result.content == "你好"
-    assert "--output-schema" not in captured["command_args"]
-    assert "-o" not in captured["command_args"]
-    assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.PIPE
+    # 新的 simple 模式使用 shell 管道执行
+    assert captured["command_args"][0] == "/bin/bash"
+    assert captured["command_args"][1] == "-c"
+    # shell_cmd 应该包含 printf 管道和 codex --no-interactive
+    shell_cmd = captured["command_args"][2]
+    assert "printf" in shell_cmd
+    assert "codex" in shell_cmd
+    assert "--no-interactive" in shell_cmd
+    # 不再使用 stdin PIPE，而是通过 printf 管道传递 prompt
+    assert "stdin" not in captured["kwargs"]
     assert captured["kwargs"]["start_new_session"] is True
-    assert captured["command_args"][-1] == "-"

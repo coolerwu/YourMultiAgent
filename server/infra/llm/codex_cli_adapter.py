@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
+import shutil
 import signal
 import tempfile
 import time
@@ -355,23 +357,79 @@ def _is_retryable_codex_error(message: str) -> bool:
 
 
 async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: str) -> str:
+    """
+    使用 shell 管道方式调用 Codex CLI，避免 codex exec - 从 stdin 读取时的阻塞问题。
+
+    Codex CLI 的 `exec -` 子命令设计上更适合执行 shell 命令，对自然语言 prompt 的支持有限。
+    改用 `echo "prompt" | codex --no-interactive ...` 的方式，通过 shell 管道传递 prompt。
+    """
+    import shutil
+
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
+
+    # 构造 codex 命令（去掉 exec 子命令和 - 参数）
+    # 原始 args: [codex_path, "exec", "--skip-git-repo-check", ...]
+    # 新命令: [codex_path, "--no-interactive", ...]
+    codex_path = args[0] if args else "codex"
+    codex_args = [codex_path, "--no-interactive"]
+
+    # 保留其他参数（跳过 "exec" 和 "-"）
+    skip_next = False
+    for i, arg in enumerate(args[1:], 1):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "exec":
+            continue
+        if arg == "-":
+            continue
+        if arg in ("--skip-git-repo-check",):
+            codex_args.append(arg)
+            continue
+        if arg in ("--sandbox", "--color"):
+            codex_args.append(arg)
+            skip_next = True
+            if i + 1 < len(args):
+                codex_args.append(args[i + 1])
+            continue
+        if arg in ("--model", "-C"):
+            codex_args.append(arg)
+            skip_next = True
+            if i + 1 < len(args):
+                codex_args.append(args[i + 1])
+            continue
+        if arg == "read-only":
+            continue
+        if arg == "never":
+            continue
+        codex_args.append(arg)
+
+    # 构造 shell 命令: echo "prompt" | codex ...
+    # 使用 printf 避免 echo 的跨平台差异，对 prompt 中的特殊字符做转义
+    escaped_prompt = prompt.replace("'", "'\"'\"'")
+    shell_cmd = f"printf '%s' '{escaped_prompt}' | {' '.join(shlex.quote(a) for a in codex_args)}"
+
     for attempt in range(1, attempts + 1):
         process = None
         started_at = time.monotonic()
         try:
             logger.info(
-                "codex_exec_start mode=simple attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s prompt_chars=%s",
+                "codex_simple_start attempt=%s/%s timeout=%ss work_dir=%s shell_chars=%s prompt_chars=%s",
                 attempt,
                 attempts,
                 _CODEX_EXEC_TIMEOUT_SECONDS,
                 work_dir,
-                len(args),
+                len(shell_cmd),
                 len(prompt),
             )
+
+            # 找到 shell 路径
+            shell_path = shutil.which("bash") or shutil.which("sh") or "/bin/sh"
+
             process = await asyncio.create_subprocess_exec(
-                *args,
-                stdin=asyncio.subprocess.PIPE,
+                shell_path,
+                "-c",
+                shell_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
@@ -380,12 +438,12 @@ async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: s
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(input=prompt.encode("utf-8")),
+                    process.communicate(),
                     timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 logger.warning(
-                    "codex_exec_timeout mode=simple attempt=%s/%s pid=%s elapsed_ms=%s",
+                    "codex_simple_timeout attempt=%s/%s pid=%s elapsed_ms=%s",
                     attempt,
                     attempts,
                     getattr(process, "pid", 0),
@@ -400,7 +458,7 @@ async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: s
         except asyncio.CancelledError:
             if process is not None:
                 logger.warning(
-                    "codex_exec_cancelled mode=simple attempt=%s/%s pid=%s",
+                    "codex_simple_cancelled attempt=%s/%s pid=%s",
                     attempt,
                     attempts,
                     getattr(process, "pid", 0),
@@ -409,7 +467,7 @@ async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: s
             raise
 
         logger.info(
-            "codex_exec_end mode=simple attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
+            "codex_simple_end attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
             attempt,
             attempts,
             getattr(process, "pid", 0),
