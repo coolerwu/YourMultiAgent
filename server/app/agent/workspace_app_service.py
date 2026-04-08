@@ -201,8 +201,8 @@ class WorkspaceAppService:
         if current is None:
             raise ValueError(f"Workspace 不存在: {cmd.workspace_id}")
 
-        current.coordinator = _to_agent_entity(cmd.coordinator)
-        current.workers = _normalize_workers([_to_agent_entity(worker) for worker in cmd.workers])
+        current.coordinator = _to_agent_entity(cmd.coordinator, current)
+        current.workers = _normalize_workers([_to_agent_entity(worker, current) for worker in cmd.workers])
         await self._gateway.save(current)
         return current
 
@@ -325,23 +325,55 @@ def _default_workspace_agent(kind: WorkspaceKind, provider: LLMProvider, model: 
     return _default_coordinator(provider, model)
 
 
-def _to_agent_entity(cmd: AgentNodeCmd) -> AgentEntity:
+def _to_agent_entity(cmd: AgentNodeCmd, workspace: WorkspaceEntity) -> AgentEntity:
+    provider = cmd.provider
+    model = str(cmd.model or "").strip()
+    llm_profile_id = str(cmd.llm_profile_id or "").strip()
+    codex_connection_id = str(cmd.codex_connection_id or "").strip()
+    base_url = str(cmd.base_url or "").strip()
+    api_key = str(cmd.api_key or "").strip()
+
+    if provider == LLMProvider.OPENAI_CODEX:
+        llm_profile_id = ""
+        base_url = ""
+        api_key = ""
+    else:
+        codex_connection_id = ""
+        llm_profile_id = ""
+        if not model:
+            model = _fallback_model_for_provider(provider, workspace)
+        if provider != LLMProvider.OPENAI_COMPAT:
+            base_url = ""
+
     return AgentEntity(
         id=cmd.id,
         name=cmd.name,
-        provider=cmd.provider,
-        model=cmd.model,
+        provider=provider,
+        model=model,
         system_prompt=cmd.system_prompt,
         temperature=cmd.temperature,
         max_tokens=cmd.max_tokens,
         tools=cmd.tools,
-        llm_profile_id=cmd.llm_profile_id,
-        codex_connection_id=cmd.codex_connection_id,
-        base_url=cmd.base_url,
-        api_key=cmd.api_key,
+        llm_profile_id=llm_profile_id,
+        codex_connection_id=codex_connection_id,
+        base_url=base_url,
+        api_key=api_key,
         work_subdir=cmd.work_subdir,
         order=cmd.order,
     )
+
+
+def _fallback_model_for_provider(provider: LLMProvider, workspace: WorkspaceEntity) -> str:
+    workspace_default = (workspace.default_model or "").strip()
+    if workspace.default_provider == provider and workspace_default:
+        return workspace_default
+    if provider == LLMProvider.ANTHROPIC:
+        return "claude-sonnet-4-6"
+    if provider == LLMProvider.OPENAI:
+        return "gpt-4o"
+    if provider == LLMProvider.OPENAI_COMPAT:
+        return "deepseek-reasoner"
+    return workspace_default or "claude-sonnet-4-6"
 
 
 def _normalize_workers(workers: list[AgentEntity]) -> list[AgentEntity]:

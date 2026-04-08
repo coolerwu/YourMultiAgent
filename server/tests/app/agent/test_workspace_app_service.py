@@ -119,7 +119,14 @@ async def test_update_workspace():
 
 @pytest.mark.asyncio
 async def test_update_orchestration_updates_coordinator_and_workers():
-    existing = WorkspaceEntity(id="ws-42", name="Old", work_dir="~/old")
+    existing = WorkspaceEntity(
+        id="ws-42",
+        name="Old",
+        work_dir="~/old",
+        default_provider=LLMProvider.OPENAI_COMPAT,
+        default_model="deepseek-reasoner",
+        default_base_url="https://api.deepseek.com/v1",
+    )
     gw = _make_gateway(existing)
     svc = WorkspaceAppService(gw)
 
@@ -159,6 +166,43 @@ async def test_update_orchestration_updates_coordinator_and_workers():
     assert updated.workers[0].order == 1
     assert updated.workers[1].name == "研发"
     assert updated.workers[1].order == 2
+
+
+@pytest.mark.asyncio
+async def test_update_orchestration_normalizes_legacy_llm_and_codex_fields():
+    existing = WorkspaceEntity(
+        id="ws-legacy",
+        name="Legacy",
+        work_dir="~/legacy",
+        default_provider=LLMProvider.OPENAI_COMPAT,
+        default_model="deepseek-reasoner",
+        default_base_url="https://api.deepseek.com/v1",
+    )
+    gw = _make_gateway(existing)
+    svc = WorkspaceAppService(gw)
+
+    updated = await svc.update_orchestration(
+        UpdateWorkspaceOrchestrationCmd(
+            workspace_id="ws-legacy",
+            coordinator=AgentNodeCmd(
+                id="chat",
+                name="单聊助手",
+                provider=LLMProvider.ANTHROPIC,
+                model="",
+                system_prompt="你是助手",
+                codex_connection_id="codex-stale",
+                llm_profile_id="profile-stale",
+                base_url="https://wrong.example.com",
+            ),
+            workers=[],
+        )
+    )
+
+    assert updated.coordinator.provider == LLMProvider.ANTHROPIC
+    assert updated.coordinator.model == "claude-sonnet-4-6"
+    assert updated.coordinator.codex_connection_id == ""
+    assert updated.coordinator.llm_profile_id == ""
+    assert updated.coordinator.base_url == ""
 
 
 @pytest.mark.asyncio

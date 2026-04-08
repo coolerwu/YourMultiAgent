@@ -36,6 +36,29 @@ const MODEL_RUNTIME_OPTIONS = [
   { value: 'codex', label: 'Codex' },
 ]
 
+function resolveLlmProvider(workspace, currentProvider = '') {
+  const workspaceProvider = workspace?.default_provider
+  if (PROVIDERS.some((item) => item.value === workspaceProvider)) {
+    return workspaceProvider
+  }
+  if (PROVIDERS.some((item) => item.value === currentProvider)) {
+    return currentProvider
+  }
+  return 'openai_compat'
+}
+
+function resolveLlmModel(provider, workspace, currentModel = '') {
+  const model = String(currentModel || '').trim()
+  if (model) return model
+  const workspaceModel = String(workspace?.default_model || '').trim()
+  if (workspace?.default_provider === provider && workspaceModel) {
+    return workspaceModel
+  }
+  if (provider === 'anthropic') return PRESET_MODELS.anthropic[0]
+  if (provider === 'openai') return PRESET_MODELS.openai[0]
+  return workspaceModel || 'deepseek-reasoner'
+}
+
 function emptyAgent(defaults, role) {
   const isChat = defaults?.kind === 'chat'
   return {
@@ -78,7 +101,7 @@ function resolveRuntimeType(agent) {
   return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
 }
 
-function normalizeAgentForRuntime(agent) {
+function normalizeAgentForRuntime(agent, workspace) {
   if (agent.provider === 'openai_codex') {
     return {
       ...agent,
@@ -87,8 +110,11 @@ function normalizeAgentForRuntime(agent) {
       api_key: '',
     }
   }
+  const provider = resolveLlmProvider(workspace, agent.provider)
   return {
     ...agent,
+    provider,
+    model: resolveLlmModel(provider, workspace, agent.model),
     codex_connection_id: '',
     llm_profile_id: '',
   }
@@ -148,9 +174,14 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     const target = role === 'coordinator'
       ? coordinator
       : workers[index] ?? emptyAgent(workspace, 'worker')
+    const normalizedTarget = normalizeAgentForWorkspace(
+      normalizeAgentForRuntime(target, workspace),
+      workspace,
+      role,
+    )
     form.setFieldsValue({
-      ...target,
-      runtime_type: resolveRuntimeType(target),
+      ...normalizedTarget,
+      runtime_type: resolveRuntimeType(normalizedTarget),
     })
     setEditing({ open: true, role, index })
   }
@@ -163,7 +194,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
     const nextAgent = normalizeAgentForWorkspace(normalizeAgentForRuntime({
       ...baseAgent,
       ...values,
-    }), workspace, editing.role)
+    }, workspace), workspace, editing.role)
     delete nextAgent.runtime_type
     if (editing.role === 'coordinator') {
       setCoordinator(nextAgent)
@@ -418,8 +449,10 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
                   })
                   return
                 }
+                const nextProvider = resolveLlmProvider(workspace, form.getFieldValue('provider'))
                 form.setFieldsValue({
-                  provider: workspace?.default_provider ?? 'anthropic',
+                  provider: nextProvider,
+                  model: resolveLlmModel(nextProvider, workspace, form.getFieldValue('model')),
                   codex_connection_id: '',
                   llm_profile_id: '',
                 })
@@ -460,7 +493,18 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
               return (
                 <>
                   <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
-                    <Select>
+                    <Select
+                      onChange={(nextProvider) => {
+                        const currentModel = form.getFieldValue('model')
+                        const presetModels = PRESET_MODELS[nextProvider] ?? []
+                        const shouldResetModel = !currentModel || (
+                          nextProvider !== 'openai_compat' && !presetModels.includes(currentModel)
+                        )
+                        if (shouldResetModel) {
+                          form.setFieldValue('model', resolveLlmModel(nextProvider, workspace, ''))
+                        }
+                      }}
+                    >
                       {PROVIDERS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
                     </Select>
                   </Form.Item>

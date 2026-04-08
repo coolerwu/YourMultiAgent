@@ -48,11 +48,34 @@ const MODEL_RUNTIME_OPTIONS = [
   { value: 'codex', label: 'Codex' },
 ]
 
+function resolveLlmProvider(workspaceDefaults, currentProvider = '') {
+  const workspaceProvider = workspaceDefaults?.default_provider
+  if (PROVIDERS.some((item) => item.value === workspaceProvider)) {
+    return workspaceProvider
+  }
+  if (PROVIDERS.some((item) => item.value === currentProvider)) {
+    return currentProvider
+  }
+  return 'openai_compat'
+}
+
+function resolveLlmModel(provider, workspaceDefaults, currentModel = '') {
+  const model = String(currentModel || '').trim()
+  if (model) return model
+  const workspaceModel = String(workspaceDefaults?.default_model || '').trim()
+  if (workspaceDefaults?.default_provider === provider && workspaceModel) {
+    return workspaceModel
+  }
+  if (provider === 'anthropic') return PRESET_MODELS.anthropic[0]
+  if (provider === 'openai') return PRESET_MODELS.openai[0]
+  return workspaceModel || 'deepseek-reasoner'
+}
+
 function resolveRuntimeType(agent) {
   return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
 }
 
-function normalizeAgentForRuntime(agent) {
+function normalizeAgentForRuntime(agent, workspaceDefaults) {
   if (agent.provider === 'openai_codex') {
     return {
       ...agent,
@@ -61,8 +84,11 @@ function normalizeAgentForRuntime(agent) {
       api_key: '',
     }
   }
+  const provider = resolveLlmProvider(workspaceDefaults, agent.provider)
   return {
     ...agent,
+    provider,
+    model: resolveLlmModel(provider, workspaceDefaults, agent.model),
     codex_connection_id: '',
     llm_profile_id: '',
   }
@@ -298,7 +324,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
       const nextData = normalizeAgentForRuntime({
         ...currentData,
         ...vals,
-      })
+      }, workspaceDefaults)
       delete nextData.runtime_type
       const codexConnection = codexConnections.find(item => item.id === vals.codex_connection_id)
       setNodes(ns => ns.map(n =>
@@ -542,8 +568,10 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
                   })
                   return
                 }
+                const nextProvider = resolveLlmProvider(workspaceDefaults, nodeForm.getFieldValue('provider'))
                 nodeForm.setFieldsValue({
-                  provider: workspaceDefaults?.default_provider ?? 'anthropic',
+                  provider: nextProvider,
+                  model: resolveLlmModel(nextProvider, workspaceDefaults, nodeForm.getFieldValue('model')),
                   codex_connection_id: '',
                   llm_profile_id: '',
                 })
@@ -590,7 +618,18 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
                 <>
                   <>
                     <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
-                      <Select>
+                      <Select
+                        onChange={(nextProvider) => {
+                          const currentModel = nodeForm.getFieldValue('model')
+                          const presetModels = PRESET_MODELS[nextProvider] ?? []
+                          const shouldResetModel = !currentModel || (
+                            nextProvider !== 'openai_compat' && !presetModels.includes(currentModel)
+                          )
+                          if (shouldResetModel) {
+                            nodeForm.setFieldValue('model', resolveLlmModel(nextProvider, workspaceDefaults, ''))
+                          }
+                        }}
+                      >
                         {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
                       </Select>
                     </Form.Item>
