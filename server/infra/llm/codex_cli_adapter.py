@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -248,8 +249,8 @@ async def _run_codex_exec_with_retry(
         try:
             if output_path.exists():
                 output_path.unlink()
-            process = await asyncio.create_subprocess_exec(
-                *args,
+            process = await asyncio.create_subprocess_shell(
+                shlex.join(args),
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -312,8 +313,8 @@ async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
     for attempt in range(1, attempts + 1):
         process = None
         try:
-            process = await asyncio.create_subprocess_exec(
-                *args,
+            process = await asyncio.create_subprocess_shell(
+                shlex.join(args),
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

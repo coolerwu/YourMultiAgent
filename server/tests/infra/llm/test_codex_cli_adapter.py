@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -137,10 +138,10 @@ class _RawProcess:
 async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
     process = _BlockingProcess()
 
-    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+    async def _fake_create_subprocess_shell(*_args, **_kwargs):
         return process
 
-    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_shell", _fake_create_subprocess_shell)
     monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 0.01)
     adapter = CodexCLIAdapter(model="", codex_path="codex")
 
@@ -155,10 +156,10 @@ async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
 async def test_codex_adapter_cancel_kills_subprocess(monkeypatch):
     process = _BlockingProcess()
 
-    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+    async def _fake_create_subprocess_shell(*_args, **_kwargs):
         return process
 
-    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_shell", _fake_create_subprocess_shell)
     monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 100)
     adapter = CodexCLIAdapter(model="", codex_path="codex")
 
@@ -178,14 +179,15 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
     first = _BlockingProcess()
     calls = {"count": 0}
 
-    async def _fake_create_subprocess_exec(*args, **_kwargs):
+    async def _fake_create_subprocess_shell(command, **_kwargs):
         calls["count"] += 1
+        args = shlex.split(command)
         output_path = Path(args[args.index("-o") + 1])
         if calls["count"] == 1:
             return first
         return _SuccessProcess(output_path, payload={"content": "第二次成功"})
 
-    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_shell", _fake_create_subprocess_shell)
     monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_MAX_ATTEMPTS", 2)
     adapter = CodexCLIAdapter(model="", codex_path="codex")
@@ -201,19 +203,19 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
 async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch):
     captured = {}
 
-    async def _fake_create_subprocess_exec(*args, **kwargs):
-        captured["args"] = list(args)
+    async def _fake_create_subprocess_shell(command, **kwargs):
+        captured["command"] = command
         captured["kwargs"] = kwargs
         return _RawProcess(
             "OpenAI Codex v0.118.0\n--------\nuser\nhello\ncodex\n你好\ntokens used\n123\n"
         )
 
-    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_shell", _fake_create_subprocess_shell)
     adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
 
     result = await adapter.ainvoke([HumanMessage(content="hello")])
 
     assert result.content == "你好"
-    assert "--output-schema" not in captured["args"]
-    assert "-o" not in captured["args"]
+    assert "--output-schema" not in captured["command"]
+    assert " -o " not in captured["command"]
     assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
