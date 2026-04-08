@@ -64,3 +64,30 @@ async def test_login_connection_returns_manual_command(monkeypatch):
 
     assert result.manual_command == "codex login --device-auth"
     assert "宿主机" in result.message
+
+
+@pytest.mark.asyncio
+async def test_install_connection_returns_login_hint_after_success(monkeypatch):
+    connection = CodexConnectionEntity(id="codex-1", name="个人 Codex")
+    svc = CodexRuntimeService(_make_gateway(connection))
+    installed = {"value": False}
+
+    monkeypatch.setattr(
+        "server.app.settings.codex_runtime_service.detect_codex_path",
+        lambda: "/home/qiuqiu/.local/bin/codex" if installed["value"] else "",
+    )
+    monkeypatch.setattr("server.app.settings.codex_runtime_service.detect_npm_path", lambda: "/usr/bin/npm")
+    monkeypatch.setattr("server.app.settings.codex_runtime_service.detect_node_path", lambda: "/usr/bin/node")
+    monkeypatch.setattr("server.app.settings.codex_runtime_service.detect_cli_version", lambda _path: "0.1.0")
+    monkeypatch.setattr("server.app.settings.codex_runtime_service.detect_login_status", lambda _path: ("disconnected", "Not logged in"))
+
+    def fake_run_command(_args, timeout=300):
+        installed["value"] = True
+        return type("Result", (), {"combined_output": "installed"})()
+
+    monkeypatch.setattr("server.app.settings.codex_runtime_service.run_command", fake_run_command)
+
+    result = await svc.install_connection("codex-1")
+
+    assert result.manual_command == "codex login --device-auth"
+    assert "退出终端并重新进入" in result.message

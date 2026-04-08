@@ -81,7 +81,7 @@ class CodexCLIAdapter:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._work_dir or None,
-                env={**os.environ, "OTEL_SDK_DISABLED": "true"},
+                env=_build_codex_env(),
             )
             stdout, stderr = await process.communicate()
             if process.returncode != 0:
@@ -191,3 +191,25 @@ def _format_codex_error(stdout: str, stderr: str) -> str:
     if not parts:
         return "Codex CLI 执行失败"
     return "Codex CLI 执行失败：\n" + "\n".join(parts[-2:])
+
+
+def _build_codex_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env["OTEL_SDK_DISABLED"] = "true"
+
+    # 避免服务进程里的空 OpenAI 认证变量污染 codex login 登录态。
+    # Codex 走 ChatGPT 登录时，这些空值会让底层客户端错误地构造认证头。
+    for key in [
+        "OPENAI_API_KEY",
+        "OPENAI_AUTH_TOKEN",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+        "OPENAI_ORG_ID",
+        "OPENAI_ORGANIZATION",
+        "OPENAI_PROJECT",
+    ]:
+        value = env.get(key)
+        if value is not None and not str(value).strip():
+            env.pop(key, None)
+
+    return env

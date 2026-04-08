@@ -99,10 +99,17 @@ class CodexRuntimeService:
         refreshed = self.inspect_connection(current)
         refreshed.last_error = "" if refreshed.install_status == "installed" else (result.combined_output or "Codex CLI 安装失败")
         await self._save_connection(refreshed)
+        if refreshed.install_status == "installed":
+            return CodexActionResult(
+                connection=refreshed,
+                message="Codex CLI 安装完成。请退出终端并重新进入，然后执行 codex login --device-auth 完成登录。",
+                manual_command="codex login --device-auth",
+                details=result.combined_output,
+            )
         return CodexActionResult(
             connection=refreshed,
-            message="Codex CLI 安装完成" if refreshed.install_status == "installed" else "Codex CLI 安装失败",
-            manual_command="" if refreshed.install_status == "installed" else build_install_manual_command(),
+            message="Codex CLI 安装失败",
+            manual_command=build_install_manual_command(),
             details=result.combined_output,
         )
 
