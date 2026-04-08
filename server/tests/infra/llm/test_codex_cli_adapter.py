@@ -26,6 +26,13 @@ def test_build_codex_env_removes_openai_auth_vars_even_when_empty(monkeypatch):
     assert "OPENAI_PROJECT" not in env
 
 
+def test_codex_adapter_disables_simple_mode_when_binding_tools():
+    adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
+    bound = adapter.bind_tools([{"name": "read_file"}])
+
+    assert bound._simple_output_mode is False
+
+
 def test_build_codex_env_removes_openai_auth_vars_even_when_non_empty(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("OPENAI_AUTH_TOKEN", "token")
@@ -110,6 +117,22 @@ class _SuccessProcess:
         return self.returncode
 
 
+class _RawProcess:
+    def __init__(self, stdout: str, returncode: int = 0, stderr: str = "") -> None:
+        self.returncode = returncode
+        self._stdout = stdout
+        self._stderr = stderr
+
+    async def communicate(self):
+        return self._stdout.encode("utf-8"), self._stderr.encode("utf-8")
+
+    def kill(self) -> None:  # pragma: no cover - no kill on success
+        self.returncode = -9
+
+    async def wait(self):  # pragma: no cover - no wait on success
+        return self.returncode
+
+
 @pytest.mark.asyncio
 async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
     process = _BlockingProcess()
@@ -172,3 +195,23 @@ async def test_codex_adapter_retries_once_then_succeeds(monkeypatch):
     assert calls["count"] == 2
     assert first.killed is True
     assert result.content == "第二次成功"
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch):
+    captured = {}
+
+    async def _fake_create_subprocess_exec(*args, **_kwargs):
+        captured["args"] = list(args)
+        return _RawProcess(
+            "OpenAI Codex v0.118.0\n--------\nuser\nhello\ncodex\n你好\ntokens used\n123\n"
+        )
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
+
+    result = await adapter.ainvoke([HumanMessage(content="hello")])
+
+    assert result.content == "你好"
+    assert "--output-schema" not in captured["args"]
+    assert "-o" not in captured["args"]

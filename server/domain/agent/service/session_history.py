@@ -153,6 +153,8 @@ def build_runtime_messages(session: ChatSessionEntity) -> list:
 
     recent_messages = session.messages[-RECENT_MESSAGE_WINDOW:]
     for item in recent_messages:
+        if item.role not in {"user", "assistant"}:
+            continue
         content = item.content.strip()
         if not content:
             continue

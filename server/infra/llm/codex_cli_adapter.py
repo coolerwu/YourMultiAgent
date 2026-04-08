@@ -40,11 +40,13 @@ class CodexCLIAdapter:
         codex_path: str = "",
         tools: list[dict] | None = None,
         work_dir: str = "",
+        simple_output_mode: bool = False,
     ) -> None:
         self._model = (model or "").strip()
         self._codex_path = codex_path or detect_codex_path()
         self._tools = tools or []
         self._work_dir = work_dir
+        self._simple_output_mode = simple_output_mode
 
     def bind_tools(self, tools: list[dict]):
         return CodexCLIAdapter(
@@ -52,6 +54,7 @@ class CodexCLIAdapter:
             codex_path=self._codex_path,
             tools=tools,
             work_dir=self._work_dir,
+            simple_output_mode=self._simple_output_mode and not bool(tools),
         )
 
     async def ainvoke(self, messages: list[Any]) -> AIMessage:
@@ -64,33 +67,39 @@ class CodexCLIAdapter:
         if not self._codex_path:
             raise ValueError("未检测到本机 codex CLI")
 
-        schema = _build_output_schema(bool(self._tools))
-        prompt = _build_exec_prompt(messages, self._tools)
+        structured_output = not self._simple_output_mode or bool(self._tools)
+        prompt = _build_exec_prompt(messages, self._tools, structured_output=structured_output)
+        args = [
+            self._codex_path,
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--color",
+            "never",
+        ]
+        if self._model:
+            args.extend(["--model", self._model])
+        if self._work_dir:
+            args.extend(["-C", self._work_dir])
 
+        if not structured_output:
+            args.append(prompt)
+            content = await _run_codex_simple_with_retry(args, self._work_dir or "")
+            return AIMessage(content=content, tool_calls=[])
+
+        schema = _build_output_schema(bool(self._tools))
         with tempfile.TemporaryDirectory(prefix="yourmultiagent-codex-") as temp_dir:
             schema_path = Path(temp_dir) / "schema.json"
             output_path = Path(temp_dir) / "output.json"
             schema_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
-
-            args = [
-                self._codex_path,
-                "exec",
-                "--skip-git-repo-check",
-                "--sandbox",
-                "read-only",
-                "--color",
-                "never",
+            args.extend([
                 "--output-schema",
                 str(schema_path),
                 "-o",
                 str(output_path),
-            ]
-            if self._model:
-                args.extend(["--model", self._model])
-            if self._work_dir:
-                args.extend(["-C", self._work_dir])
-            args.append(prompt)
-
+                prompt,
+            ])
             data = await _run_codex_exec_with_retry(args, output_path, self._work_dir or "")
 
         return AIMessage(
@@ -126,13 +135,17 @@ def _build_output_schema(with_tools: bool) -> dict:
     return schema
 
 
-def _build_exec_prompt(messages: list[Any], tools: list[dict]) -> str:
+def _build_exec_prompt(messages: list[Any], tools: list[dict], *, structured_output: bool) -> str:
     lines = [
         "你是多 Agent 平台中的底层推理模型适配器。",
         "你只能基于提供的消息做推理，不要运行 shell 命令，不要读写文件，不要自行假设外部环境。",
-        "你必须输出满足给定 JSON Schema 的最终结果。",
     ]
-    if tools:
+    if structured_output:
+        lines.append("你必须输出满足给定 JSON Schema 的最终结果。")
+    else:
+        lines.append("请直接输出最终回答正文，不要添加额外的 JSON 包装。")
+
+    if tools and structured_output:
         lines.extend([
             "如果需要调用工具，请在 tool_calls 中返回待调用工具。",
             "tool_calls 中每个元素必须包含 id、name、args。",
@@ -291,3 +304,69 @@ async def _run_codex_exec_with_retry(
 def _is_retryable_codex_error(message: str) -> bool:
     lowered = (message or "").lower()
     return "timeout" in lowered or "temporarily unavailable" in lowered
+
+
+async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
+    attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
+    for attempt in range(1, attempts + 1):
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=work_dir or None,
+                env=_build_codex_env(),
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                await _terminate_process(process)
+                if attempt < attempts:
+                    continue
+                raise ValueError(
+                    f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒，重试 {attempts} 次仍失败），请检查当前模型配置或登录态。"
+                )
+        except asyncio.CancelledError:
+            if process is not None:
+                await _terminate_process(process)
+            raise
+
+        stdout_text = stdout.decode("utf-8", errors="ignore")
+        stderr_text = stderr.decode("utf-8", errors="ignore")
+        if process.returncode != 0:
+            message = _format_codex_error(stdout_text, stderr_text)
+            if attempt < attempts and _is_retryable_codex_error(message):
+                continue
+            raise ValueError(message)
+
+        content = _extract_simple_content(stdout_text)
+        if content:
+            return content
+        if attempt < attempts:
+            continue
+        raise ValueError("Codex CLI 返回了空结果")
+
+    raise ValueError("Codex CLI 执行失败")
+
+
+def _extract_simple_content(stdout_text: str) -> str:
+    text = stdout_text.replace("\r\n", "\n").strip()
+    if not text:
+        return ""
+    marker = "\ncodex\n"
+    index = text.rfind(marker)
+    if index != -1:
+        payload = text[index + len(marker):]
+    elif text.startswith("codex\n"):
+        payload = text[len("codex\n"):]
+    else:
+        payload = text
+
+    token_marker = "\ntokens used"
+    if token_marker in payload:
+        payload = payload.split(token_marker, 1)[0]
+    return payload.strip()

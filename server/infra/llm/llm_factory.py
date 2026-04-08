@@ -6,7 +6,7 @@ LLMGateway 实现：根据 AgentEntity 构建 LangChain LLM 实例。
 API Key 优先用 agent 级配置，若节点引用 workspace LLM profile 则先用 profile，再退回环境变量。
 """
 
-from server.domain.agent.entity.agent_entity import AgentEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
 from server.domain.agent.gateway.llm_gateway import LLMGateway
 from server.infra.codex.codex_cli import detect_codex_path, detect_login_status
 from server.infra.llm.codex_cli_adapter import CodexCLIAdapter
@@ -57,6 +57,7 @@ class LangChainLLMFactory(LLMGateway):
                 model=model,
                 codex_path=codex_path,
                 work_dir=workspace.work_dir if workspace else "",
+                simple_output_mode=bool(workspace and workspace.kind == WorkspaceKind.CHAT),
             )
 
         else:
