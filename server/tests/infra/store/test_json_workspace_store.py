@@ -4,9 +4,11 @@ tests/infra/store/test_json_workspace_store.py
 JsonWorkspaceStore 单元测试：CRUD + 重启恢复 + enum 序列化。
 """
 
+import json
+
 import pytest
 
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity
 from server.infra.store.json_workspace_store import JsonWorkspaceStore
 from server.infra.store.workspace_json import setting_path, workspace_file_path
 
@@ -27,6 +29,14 @@ def _make_ws(ws_id="ws-1") -> WorkspaceEntity:
                 model="deepseek-chat",
                 base_url="https://api.deepseek.com/v1",
                 api_key="sk-demo",
+            )
+        ],
+        codex_connections=[
+            CodexConnectionEntity(
+                id="codex-1",
+                name="个人 Codex",
+                status="connected",
+                account_label="demo@example.com",
             )
         ],
         coordinator=AgentEntity(
@@ -100,6 +110,30 @@ def _make_ws(ws_id="ws-1") -> WorkspaceEntity:
 @pytest.mark.asyncio
 async def test_save_and_find_by_id(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
+    await store.save_global_settings(
+        GlobalSettingsEntity(
+            default_provider=LLMProvider.OPENAI_COMPAT,
+            default_model="deepseek-chat",
+            default_base_url="https://api.deepseek.com/v1",
+            llm_profiles=[
+                LLMProfileEntity(
+                    id="llm-1",
+                    name="DeepSeek",
+                    provider=LLMProvider.OPENAI_COMPAT,
+                    model="deepseek-chat",
+                    base_url="https://api.deepseek.com/v1",
+                    api_key="sk-demo",
+                )
+            ],
+            codex_connections=[
+                CodexConnectionEntity(
+                    id="codex-1",
+                    name="个人 Codex",
+                    status="connected",
+                )
+            ],
+        )
+    )
     await store.save(_make_ws())
     result = await store.find_by_id("ws-1")
     assert result is not None
@@ -112,6 +146,30 @@ async def test_save_and_find_by_id(tmp_path):
 @pytest.mark.asyncio
 async def test_enum_roundtrip(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
+    await store.save_global_settings(
+        GlobalSettingsEntity(
+            default_provider=LLMProvider.OPENAI_COMPAT,
+            default_model="deepseek-chat",
+            default_base_url="https://api.deepseek.com/v1",
+            llm_profiles=[
+                LLMProfileEntity(
+                    id="llm-1",
+                    name="DeepSeek",
+                    provider=LLMProvider.OPENAI_COMPAT,
+                    model="deepseek-chat",
+                    base_url="https://api.deepseek.com/v1",
+                    api_key="sk-demo",
+                )
+            ],
+            codex_connections=[
+                CodexConnectionEntity(
+                    id="codex-1",
+                    name="个人 Codex",
+                    status="connected",
+                )
+            ],
+        )
+    )
     await store.save(_make_ws())
 
     store2 = JsonWorkspaceStore(tmp_path)
@@ -119,6 +177,7 @@ async def test_enum_roundtrip(tmp_path):
     assert result.default_provider == LLMProvider.OPENAI_COMPAT
     assert result.default_base_url == "https://api.deepseek.com/v1"
     assert result.llm_profiles[0].name == "DeepSeek"
+    assert result.codex_connections[0].name == "个人 Codex"
     assert result.coordinator.name == "主控智能体"
     assert result.workers[0].name == "研发"
     assert result.workers[0].order == 2
@@ -131,6 +190,7 @@ async def test_enum_roundtrip(tmp_path):
 @pytest.mark.asyncio
 async def test_data_persists(tmp_path):
     store1 = JsonWorkspaceStore(tmp_path)
+    await store1.save_global_settings(GlobalSettingsEntity(default_provider=LLMProvider.OPENAI, default_model="gpt-4o"))
     await store1.save(_make_ws("ws-persist"))
 
     store2 = JsonWorkspaceStore(tmp_path)
@@ -147,6 +207,7 @@ async def test_find_all_empty(tmp_path):
 @pytest.mark.asyncio
 async def test_delete(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
+    await store.save_global_settings(GlobalSettingsEntity())
     await store.save(_make_ws())
     ok = await store.delete("ws-1")
     assert ok is True
@@ -191,5 +252,42 @@ async def test_migrates_legacy_global_json_files(tmp_path):
 
     assert result is not None
     assert result.name == "Legacy WS"
-    payload = __import__("json").loads(workspace_file_path(tmp_path, "Legacy-WS").read_text(encoding="utf-8"))
+    payload = json.loads(workspace_file_path(tmp_path, "Legacy-WS").read_text(encoding="utf-8"))
     assert payload["graphs"][0]["name"] == "Legacy Graph"
+    settings_payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
+    assert settings_payload["global_settings"]["default_provider"] == "anthropic"
+
+
+@pytest.mark.asyncio
+async def test_setting_json_persists_global_provider_settings(tmp_path):
+    store = JsonWorkspaceStore(tmp_path)
+    saved = await store.save_global_settings(
+        GlobalSettingsEntity(
+            default_provider=LLMProvider.OPENAI,
+            default_model="gpt-4o",
+            llm_profiles=[
+                LLMProfileEntity(
+                    id="llm-1",
+                    name="共享 GPT",
+                    provider=LLMProvider.OPENAI,
+                    model="gpt-4o-mini",
+                )
+            ],
+            codex_connections=[
+                CodexConnectionEntity(
+                    id="codex-1",
+                    name="个人 Codex",
+                    status="connected",
+                )
+            ],
+        )
+    )
+
+    loaded = await store.load_global_settings()
+
+    assert saved.default_provider == LLMProvider.OPENAI
+    assert loaded.llm_profiles[0].name == "共享 GPT"
+    assert loaded.codex_connections[0].name == "个人 Codex"
+    payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
+    assert payload["global_settings"]["default_model"] == "gpt-4o"
+    assert payload["global_settings"]["codex_connections"][0]["name"] == "个人 Codex"

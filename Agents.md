@@ -16,9 +16,9 @@ YourMultiAgent/
 ```
 
 详见：
-- `docs/server-architecture.md`：后端 COLA 分层规范
-- `docs/web-architecture.md`：前端架构规范
-- `docs/agent-model.md`：Agent / Worker 核心模型
+- `docs/server-architecture.md`：后端容器级架构图（C4 Model Level 2）
+- `docs/web-architecture.md`：前端容器级架构图（C4 Model Level 2）
+- `docs/agent-model.md`：Agent / Worker 运行模型容器图（C4 Model Level 2）
 - `docs/session-history.md`：Workspace 会话历史、compact 与 memory 机制
 
 ## 测试

@@ -15,7 +15,7 @@ from server.app.agent.workspace_app_service import (
     WorkspaceAppService,
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
-from server.domain.agent.entity.agent_entity import LLMProvider, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProvider, WorkspaceEntity
 
 
 def _make_gateway(ws: WorkspaceEntity | None = None):
@@ -24,6 +24,8 @@ def _make_gateway(ws: WorkspaceEntity | None = None):
     gw.find_by_id = AsyncMock(return_value=ws)
     gw.find_all = AsyncMock(return_value=[] if ws is None else [ws])
     gw.delete = AsyncMock(return_value=True)
+    gw.load_global_settings = AsyncMock(return_value=GlobalSettingsEntity())
+    gw.save_global_settings = AsyncMock(side_effect=lambda settings: settings)
     return gw
 
 
@@ -189,3 +191,29 @@ async def test_delete_session_removes_session():
 
     assert ok is True
     assert existing.sessions == []
+
+
+@pytest.mark.asyncio
+async def test_update_global_settings_delegates_and_syncs_workspaces():
+    existing = WorkspaceEntity(id="ws-42", name="Old", work_dir="~/old")
+    gw = _make_gateway(existing)
+    svc = WorkspaceAppService(gw)
+
+    settings = GlobalSettingsEntity(
+        default_provider=LLMProvider.OPENAI,
+        default_model="gpt-4o",
+        codex_connections=[
+            CodexConnectionEntity(
+                id="codex-1",
+                name="个人 Codex",
+                status="connected",
+            )
+        ],
+    )
+
+    saved = await svc.update_global_settings(settings)
+
+    assert saved.default_model == "gpt-4o"
+    gw.save_global_settings.assert_awaited_once()
+    assert existing.default_model == "gpt-4o"
+    assert existing.codex_connections[0].name == "个人 Codex"

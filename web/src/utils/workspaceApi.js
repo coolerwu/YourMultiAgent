@@ -17,6 +17,8 @@ export const workspaceApi = {
   getSession: (id, sessionId) => api.get(`/api/workspaces/${id}/sessions/${sessionId}`),
   deleteSession: (id, sessionId) => api.delete(`/api/workspaces/${id}/sessions/${sessionId}`),
   updateOrchestration: (id, data) => api.put(`/api/workspaces/${id}/orchestration`, data),
+  getProviderSettings: () => api.get('/api/settings/providers'),
+  updateProviderSettings: (data) => api.put('/api/settings/providers', data),
   run: (id, payload, onChunk, onDone, onError) =>
     wsRun(`/ws/workspaces/${id}/run`, payload, onChunk, onDone, onError),
 }

@@ -18,6 +18,7 @@ from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEnti
 from server.domain.agent.gateway.llm_gateway import LLMGateway
 from server.domain.agent.service.react_loop import ReactLoop
 from server.domain.agent.service.session_history import build_runtime_messages
+from server.domain.worker.entity.capability_entity import CapabilityEntity
 from server.domain.worker.gateway.worker_gateway import WorkerGateway
 
 _MAX_TOOL_ROUNDS = 8
@@ -111,7 +112,8 @@ class WorkspaceExecutor:
         user_message: str,
     ) -> AsyncGenerator[dict, None]:
         llm = self._llm_factory.build(agent, self._workspace)
-        tools = _build_tools(agent.tools, self._worker_gateway)
+        capabilities = _build_capabilities(agent.tools, self._worker_gateway)
+        tools = [item.to_tool_schema() for item in capabilities]
         work_dir = _resolve_agent_work_dir(self._workspace_root, agent.resolved_work_subdir())
         Path(work_dir).mkdir(parents=True, exist_ok=True)
 
@@ -133,7 +135,7 @@ class WorkspaceExecutor:
             max_rounds=_MAX_TOOL_ROUNDS,
         )
         async for event in loop.run([
-            SystemMessage(content=agent.system_prompt),
+            SystemMessage(content=_build_agent_system_prompt(agent, capabilities)),
             *build_runtime_messages(session),
             HumanMessage(content=user_message),
         ]):
@@ -153,9 +155,9 @@ class WorkspaceExecutor:
         }
 
 
-def _build_tools(tool_names: list[str], worker: WorkerGateway) -> list:
+def _build_capabilities(tool_names: list[str], worker: WorkerGateway) -> list[CapabilityEntity]:
     caps = {c.name: c for c in worker.list_capabilities()}
-    return [caps[name].to_tool_schema() for name in tool_names if name in caps]
+    return [caps[name] for name in tool_names if name in caps]
 
 
 def _resolve_workspace_root(workspace: WorkspaceEntity, base_work_dir: str) -> str:
@@ -206,4 +208,48 @@ def _build_run_summary(plan_text: str, worker_outputs: list[dict[str, str]]) -> 
     lines = ["主控拆解：", plan_text or "无", "", "Worker 结果："]
     for item in worker_outputs:
         lines.append(f"- {item['worker_name']}: {item['output'][:200] or '无输出'}")
+    return "\n".join(lines)
+
+
+def _build_agent_system_prompt(agent: AgentEntity, capabilities: list[CapabilityEntity]) -> str:
+    prompt_parts = [agent.system_prompt.strip()]
+    capability_block = _build_capability_prompt_block(capabilities)
+    if capability_block:
+        prompt_parts.append(capability_block)
+    return "\n\n".join(item for item in prompt_parts if item)
+
+
+def _build_capability_prompt_block(capabilities: list[CapabilityEntity]) -> str:
+    if not capabilities:
+        return ""
+
+    lines = [
+        "【工具使用约束】",
+        "你只能使用当前已授权的工具；如果工具不足以完成任务，要明确说明缺口，不要虚构执行结果。",
+    ]
+
+    browser_caps = [item for item in capabilities if item.name.startswith("browser_")]
+    non_browser_caps = [item for item in capabilities if not item.name.startswith("browser_")]
+
+    if browser_caps:
+        browser_names = "、".join(item.name for item in browser_caps)
+        read_caps = [item.name for item in browser_caps if item.category in {"browser_read", "browser_debug"}]
+        write_caps = [item.name for item in browser_caps if item.category == "browser_write"]
+        lines.extend([
+            f"你当前可用的浏览器工具：{browser_names}。",
+            "浏览器任务默认先读取再交互：优先用读取/判断类工具确认页面状态，再决定是否执行点击、输入、按键等写操作。",
+            "如果需要浏览器会话，先调用 `browser_open` 获取 `session_id`，之后在同一任务中复用该 `session_id`，结束时优先调用 `browser_close` 释放会话。",
+            "使用写操作前，应先确认目标元素存在或已可见；可优先组合 `browser_exists`、`browser_wait_for` 与读取类工具。",
+            "不要把截图当默认输出；只有在需要视觉留痕、页面异常排查或文本不足以说明问题时才使用 `browser_screenshot`。",
+            "浏览器工具的返回结果是事实来源。不要声称自己看到了工具未返回的页面内容。",
+        ])
+        if read_caps:
+            lines.append(f"优先使用的浏览器读工具：{'、'.join(read_caps)}。")
+        if write_caps:
+            lines.append(f"高风险浏览器写工具：{'、'.join(write_caps)}；仅在有明确目标和依据时使用。")
+
+    if non_browser_caps:
+        lines.append("当前其他可用工具：" + "、".join(item.name for item in non_browser_caps) + "。")
+
+    lines.append("如果工具调用失败，要基于错误信息调整下一步，而不是重复同一个无效调用。")
     return "\n".join(lines)

@@ -25,7 +25,7 @@ from server.infra.worker.worker_router import WorkerRouter
 _data_dir = get_data_dir()
 _workspace_store = JsonWorkspaceStore(_data_dir)
 _local_worker = LocalWorker()
-_worker_router = WorkerRouter(_local_worker)
+_worker_router = WorkerRouter(_local_worker, _data_dir)
 _llm_factory = LangChainLLMFactory()
 # 无 Workspace 时的沙箱根目录：DATA_DIR/workspace/
 _base_work_dir = str(_data_dir / "workspace")

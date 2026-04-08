@@ -23,6 +23,7 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     OPENAI_COMPAT = "openai_compat"   # 任意 OpenAI 兼容 API（DeepSeek/Moonshot 等）
+    OPENAI_CODEX = "openai_codex"
 
 
 class EdgeCondition(str, Enum):
@@ -45,6 +46,7 @@ class AgentEntity:
     max_tokens: int = 4096
     tools: list[str] = field(default_factory=list)
     llm_profile_id: str = ""
+    codex_connection_id: str = ""
     # OpenAI-compat 节点级覆盖（留空则用 workspace 默认或环境变量）
     base_url: str = ""
     api_key: str = ""
@@ -103,6 +105,30 @@ class LLMProfileEntity:
 
 
 @dataclass
+class CodexConnectionEntity:
+    """基于 ChatGPT 登录态的 Codex 连接。"""
+    id: str
+    name: str
+    provider: LLMProvider = LLMProvider.OPENAI_CODEX
+    auth_mode: str = "chatgpt_codex_login"
+    account_label: str = ""
+    status: str = "disconnected"
+    credential_ref: str = ""
+    last_verified_at: str = ""
+
+
+@dataclass
+class GlobalSettingsEntity:
+    """全局共享设置：当前主要承载 Provider / LLM 配置。"""
+    default_provider: LLMProvider = LLMProvider.ANTHROPIC
+    default_model: str = "claude-sonnet-4-6"
+    default_base_url: str = ""
+    default_api_key: str = ""
+    llm_profiles: list[LLMProfileEntity] = field(default_factory=list)
+    codex_connections: list[CodexConnectionEntity] = field(default_factory=list)
+
+
+@dataclass
 class ChatMessageEntity:
     """会话中的单条消息或事件。"""
     id: str
@@ -157,6 +183,7 @@ class WorkspaceEntity:
     default_base_url: str = ""              # openai_compat 时必填
     default_api_key: str = ""              # 留空则用环境变量
     llm_profiles: list[LLMProfileEntity] = field(default_factory=list)
+    codex_connections: list[CodexConnectionEntity] = field(default_factory=list)
     coordinator: Optional[AgentEntity] = None
     workers: list[AgentEntity] = field(default_factory=list)
     sessions: list[ChatSessionEntity] = field(default_factory=list)

@@ -1,39 +1,245 @@
 #!/bin/bash
-# run.sh — YourMultiAgent 启动脚本
+# run.sh — YourMultiAgent 启动与快速部署脚本
 #
 # 用法：
-#   ./run.sh            # 生产模式，数据目录 ~/.yourmultiagent/
-#   ./run.sh test       # 测试模式，数据目录 ./data/
-#   ./run.sh test 9090  # 测试模式，指定端口
+#   ./run.sh prod [PORT]        # 拉取/更新仓库、安装依赖、注册 systemd，并启动服务
+#   ./run.sh serve-prod [PORT]  # 仅启动生产服务（供 systemd 调用）
+#   ./run.sh test [PORT]        # 测试模式，数据目录 ./data/
 
-set -e
+set -euo pipefail
 
 MODE="${1:-prod}"
 PORT="${2:-8080}"
 
+REPO_URL="https://github.com/coolerwu/YourMultiAgent.git"
+ARCHIVE_URL="https://github.com/coolerwu/YourMultiAgent/archive/refs/heads/main.tar.gz"
+SERVICE_NAME="yourmultiagent"
+DEPLOY_DIR="${HOME}/yourmultiagent"
+DATA_DIR_PROD="${HOME}/.yourmultiagent"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "缺少命令：$1"
+    exit 1
+  fi
+}
+
+
+resolve_python_bin() {
+  if [ -x "$(pwd)/.venv/bin/python" ]; then
+    printf '%s\n' "$(pwd)/.venv/bin/python"
+  else
+    printf '%s\n' "python3"
+  fi
+}
+
+
+run_uvicorn() {
+  local data_dir="$1"
+  local reload_flag="${2:-false}"
+  local python_bin
+  python_bin="$(resolve_python_bin)"
+
+  mkdir -p "$data_dir"
+  echo "▶  启动"
+  echo "   Python：$python_bin"
+  echo "   数据目录：$data_dir"
+  echo "   地址：http://0.0.0.0:$PORT"
+
+  if [ "$reload_flag" = "true" ]; then
+    DATA_DIR="$data_dir" "$python_bin" -m uvicorn server.main:app \
+      --host 0.0.0.0 --port "$PORT" --reload
+  else
+    DATA_DIR="$data_dir" "$python_bin" -m uvicorn server.main:app \
+      --host 0.0.0.0 --port "$PORT"
+  fi
+}
+
+
+ensure_deploy_repo() {
+  mkdir -p "$DATA_DIR_PROD"
+  mkdir -p "$DEPLOY_DIR"
+
+  if command -v git >/dev/null 2>&1 && [ -d "$DEPLOY_DIR/.git" ]; then
+    echo "▶  更新仓库：$DEPLOY_DIR"
+    git -C "$DEPLOY_DIR" fetch --all --prune
+    git -C "$DEPLOY_DIR" pull --ff-only
+  elif command -v git >/dev/null 2>&1; then
+    if [ -n "$(find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
+      echo "部署目录已存在且不是 Git 仓库：$DEPLOY_DIR"
+      exit 1
+    fi
+    rmdir "$DEPLOY_DIR" 2>/dev/null || true
+    echo "▶  克隆仓库：$REPO_URL -> $DEPLOY_DIR"
+    git clone "$REPO_URL" "$DEPLOY_DIR"
+  else
+    require_cmd curl
+    require_cmd tar
+    download_repo_archive
+  fi
+}
+
+
+download_repo_archive() {
+  local tmp_archive tmp_dir archive_root
+  tmp_archive="$(mktemp)"
+  tmp_dir="$(mktemp -d)"
+
+  echo "▶  下载源码包：$ARCHIVE_URL"
+  curl -L "$ARCHIVE_URL" -o "$tmp_archive"
+
+  rm -rf "$DEPLOY_DIR"
+  mkdir -p "$DEPLOY_DIR"
+  tar -xzf "$tmp_archive" -C "$tmp_dir"
+
+  archive_root="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  if [ -z "$archive_root" ]; then
+    echo "源码包解压失败"
+    rm -f "$tmp_archive"
+    rm -rf "$tmp_dir"
+    exit 1
+  fi
+
+  cp -R "$archive_root"/. "$DEPLOY_DIR"/
+  rm -f "$tmp_archive"
+  rm -rf "$tmp_dir"
+}
+
+
+install_runtime_deps() {
+  cd "$DEPLOY_DIR"
+  if [ ! -d ".venv" ]; then
+    echo "▶  创建虚拟环境"
+    python3 -m venv .venv
+  fi
+
+  echo "▶  安装运行时依赖"
+  .venv/bin/pip install --upgrade pip
+  .venv/bin/pip install --no-cache-dir \
+    fastapi "uvicorn[standard]" langgraph langchain-core \
+    langchain-anthropic langchain-openai httpx pydantic typer websockets \
+    setuptools wheel
+}
+
+
+write_service_file() {
+  local tmp_file
+  tmp_file="$(mktemp)"
+
+  cat >"$tmp_file" <<EOF
+[Unit]
+Description=YourMultiAgent
+After=network.target
+
+[Service]
+Type=simple
+User=$(id -un)
+WorkingDirectory=$DEPLOY_DIR
+ExecStart=$DEPLOY_DIR/run.sh serve-prod $PORT
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  sudo mv "$tmp_file" "$SERVICE_FILE"
+}
+
+
+service_needs_update() {
+  local tmp_file
+  tmp_file="$(mktemp)"
+
+  cat >"$tmp_file" <<EOF
+[Unit]
+Description=YourMultiAgent
+After=network.target
+
+[Service]
+Type=simple
+User=$(id -un)
+WorkingDirectory=$DEPLOY_DIR
+ExecStart=$DEPLOY_DIR/run.sh serve-prod $PORT
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  if [ ! -f "$SERVICE_FILE" ]; then
+    rm -f "$tmp_file"
+    return 0
+  fi
+
+  if ! sudo cmp -s "$tmp_file" "$SERVICE_FILE"; then
+    rm -f "$tmp_file"
+    return 0
+  fi
+
+  rm -f "$tmp_file"
+  return 1
+}
+
+
+ensure_systemd_service() {
+  require_cmd sudo
+  require_cmd systemctl
+
+  if [ ! -f "$SERVICE_FILE" ]; then
+    echo "▶  注册 systemd 服务：$SERVICE_NAME"
+    write_service_file
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now "$SERVICE_NAME"
+  elif service_needs_update; then
+    echo "▶  更新 systemd 服务：$SERVICE_NAME"
+    write_service_file
+    sudo systemctl daemon-reload
+    sudo systemctl restart "$SERVICE_NAME"
+  else
+    echo "▶  重启 systemd 服务：$SERVICE_NAME"
+    sudo systemctl restart "$SERVICE_NAME"
+  fi
+}
+
+
+verify_service() {
+  echo "▶  验证服务状态"
+  sleep 2
+  systemctl status "$SERVICE_NAME" --no-pager || true
+  python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:${PORT}/api/health', timeout=5).read().decode())"
+}
+
+
+deploy_prod() {
+  require_cmd python3
+
+  ensure_deploy_repo
+  install_runtime_deps
+  ensure_systemd_service
+  verify_service
+}
+
+
 case "$MODE" in
   test)
-    DATA_DIR="$(pwd)/data"
-    mkdir -p "$DATA_DIR"
-    echo "▶  启动（测试模式）"
-    echo "   数据目录：$DATA_DIR"
-    echo "   地址：http://0.0.0.0:$PORT"
-    DATA_DIR="$DATA_DIR" python3 -m uvicorn server.main:app \
-      --host 0.0.0.0 --port "$PORT" --reload
+    run_uvicorn "$(pwd)/data" "true"
+    ;;
+  serve-prod)
+    cd "$DEPLOY_DIR"
+    run_uvicorn "$DATA_DIR_PROD" "false"
     ;;
   prod)
-    DATA_DIR="$HOME/.yourmultiagent"
-    mkdir -p "$DATA_DIR"
-    echo "▶  启动（生产模式）"
-    echo "   数据目录：$DATA_DIR"
-    echo "   地址：http://0.0.0.0:$PORT"
-    DATA_DIR="$DATA_DIR" python3 -m uvicorn server.main:app \
-      --host 0.0.0.0 --port "$PORT"
+    deploy_prod
     ;;
   *)
-    echo "用法：$0 [prod|test] [PORT]"
-    echo "  prod  生产模式（默认），数据存储在 ~/.yourmultiagent/"
-    echo "  test  测试模式，数据存储在 ./data/"
+    echo "用法：$0 [prod|serve-prod|test] [PORT]"
+    echo "  prod        快速部署并启动 systemd 服务"
+    echo "  serve-prod  仅启动生产服务（供 systemd 调用）"
+    echo "  test        测试模式，数据存储在 ./data/"
     exit 1
     ;;
 esac

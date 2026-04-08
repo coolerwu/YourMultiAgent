@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from server.domain.worker.entity.capability_entity import CapabilityEntity
+from server.domain.worker.entity.worker_entity import WorkerInfoEntity
 
 
 class WorkerGateway(ABC):
@@ -17,6 +18,16 @@ class WorkerGateway(ABC):
     @abstractmethod
     def list_capabilities(self) -> list[CapabilityEntity]:
         """返回当前 Worker 支持的所有能力"""
+        ...
+
+    @abstractmethod
+    def list_workers(self) -> list[WorkerInfoEntity]:
+        """返回当前在线 Worker 列表及其授权状态"""
+        ...
+
+    @abstractmethod
+    def set_enabled_capabilities(self, worker_id: str, capability_names: list[str]) -> WorkerInfoEntity:
+        """更新某个 Worker 的已授权能力集"""
         ...
 
     @abstractmethod

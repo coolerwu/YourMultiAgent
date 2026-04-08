@@ -4,12 +4,12 @@ tests/infra/worker/test_worker_router.py
 WorkerRouter 单元测试：本机优先路由、远程路由、注册/注销、无 capability 时抛错。
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from server.domain.worker.entity.capability_entity import CapabilityEntity
+from server.domain.worker.entity.worker_entity import WorkerInfoEntity
 from server.infra.worker.worker_router import WorkerRouter
 
 
@@ -27,7 +27,24 @@ def _make_proxy(worker_id: str, cap_names: list[str]):
     proxy = MagicMock()
     proxy.worker_id = worker_id
     proxy.list_capabilities.return_value = caps
+    proxy.list_registered_capabilities.return_value = caps
     proxy.invoke = AsyncMock(return_value="remote_result")
+    proxy.set_enabled_capabilities.side_effect = lambda _, names: WorkerInfoEntity(
+        worker_id=worker_id,
+        label=worker_id,
+        kind="generic",
+        status="online",
+        registered_capabilities=caps,
+        enabled_capability_names=list(names),
+    )
+    proxy.to_worker_info.return_value = WorkerInfoEntity(
+        worker_id=worker_id,
+        label=worker_id,
+        kind="generic",
+        status="online",
+        registered_capabilities=caps,
+        enabled_capability_names=cap_names,
+    )
     return proxy
 
 
@@ -94,3 +111,28 @@ def test_unregister_remote():
 
     router.unregister_remote("remote-1")
     assert "remote-1" not in router.list_remote_workers()
+
+
+def test_set_enabled_capabilities_filters_remote_capabilities(tmp_path):
+    local = _make_local_worker(["read_file"])
+    router = WorkerRouter(local, tmp_path)
+    proxy = _make_proxy("browser-1", ["browser_open", "browser_click"])
+    router.register_remote(proxy)
+
+    router.set_enabled_capabilities("browser-1", ["browser_open"])
+
+    proxy.set_enabled_capabilities.assert_called_once_with("browser-1", ["browser_open"])
+
+
+def test_remote_enabled_config_persists_across_router_restart(tmp_path):
+    local = _make_local_worker([])
+    router = WorkerRouter(local, tmp_path)
+    proxy = _make_proxy("browser-1", ["browser_open", "browser_click"])
+    router.register_remote(proxy)
+    router.set_enabled_capabilities("browser-1", ["browser_open"])
+
+    router2 = WorkerRouter(local, tmp_path)
+    proxy2 = _make_proxy("browser-1", ["browser_open", "browser_click"])
+    router2.register_remote(proxy2)
+
+    proxy2.set_enabled_capabilities.assert_called_once_with("browser-1", ["browser_open"])

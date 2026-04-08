@@ -43,7 +43,7 @@ const PRESET_MODELS = {
 }
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
-  const modelLabel = data.llm_profile_name || data.model
+  const modelLabel = data.codex_connection_name || data.llm_profile_name || data.model
   return (
     <div style={{
       padding: '10px 16px',
@@ -59,6 +59,9 @@ function AgentNode({ data, selected }) {
       <div style={{ fontSize: 11, color: '#888' }}>{modelLabel}</div>
       {data.llm_profile_name && (
         <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>🔗 {data.llm_profile_name}</div>
+      )}
+      {data.codex_connection_name && (
+        <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>🔐 {data.codex_connection_name}</div>
       )}
       {data.work_subdir && (
         <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>📁 {data.work_subdir}</div>
@@ -112,6 +115,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
   const closeContextMenu = () => setContextMenu(m => ({ ...m, open: false }))
   const closeEdgeEdit = () => setEdgeEdit(m => ({ ...m, open: false }))
   const llmProfiles = workspaceDefaults?.llm_profiles ?? []
+  const codexConnections = workspaceDefaults?.codex_connections ?? []
   const effectiveWorkspaceId = graph?.workspace_id ?? workspaceId ?? ''
 
   useEffect(() => {
@@ -130,6 +134,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         data: {
           ...a,
           llm_profile_name: llmProfiles.find(profile => profile.id === a.llm_profile_id)?.name ?? '',
+          codex_connection_name: codexConnections.find(connection => connection.id === a.codex_connection_id)?.name ?? '',
         },
       }))
     )
@@ -143,7 +148,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         animated: !e.artifact,
       }))
     )
-  }, [graph, llmProfiles])
+  }, [graph, llmProfiles, codexConnections])
 
   // 拖拽连线（默认无 artifact，始终触发）
   const onConnect = useCallback((params) => {
@@ -254,9 +259,18 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
   const saveNode = () => {
     nodeForm.validateFields().then(vals => {
       const profile = llmProfiles.find(item => item.id === vals.llm_profile_id)
+      const codexConnection = codexConnections.find(item => item.id === vals.codex_connection_id)
       setNodes(ns => ns.map(n =>
         n.id === nodeModal.nodeId
-          ? { ...n, data: { ...n.data, ...vals, llm_profile_name: profile?.name ?? '' } }
+          ? {
+            ...n,
+            data: {
+              ...n.data,
+              ...vals,
+              llm_profile_name: profile?.name ?? '',
+              codex_connection_name: codexConnection?.name ?? '',
+            },
+          }
           : n
       ))
       setNodeModal({ open: false, nodeId: null })
@@ -292,6 +306,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         max_tokens: values.max_tokens ?? 4096,
         tools: values.tools ?? [],
         llm_profile_id: values.llm_profile_id ?? '',
+        codex_connection_id: values.codex_connection_id ?? '',
         base_url: values.base_url ?? '',
         api_key: values.api_key ?? '',
       })
@@ -340,6 +355,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         max_tokens: targetData.max_tokens ?? 4096,
         tools: targetData.tools ?? [],
         llm_profile_id: targetData.llm_profile_id ?? '',
+        codex_connection_id: targetData.codex_connection_id ?? '',
         base_url: targetData.base_url ?? '',
         api_key: targetData.api_key ?? '',
       })
@@ -368,6 +384,8 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         name: '新 Agent',
         llm_profile_id: llmProfiles[0]?.id ?? '',
         llm_profile_name: llmProfiles[0]?.name ?? '',
+        codex_connection_id: '',
+        codex_connection_name: '',
         provider: defaults.default_provider ?? 'anthropic',
         model: defaults.default_model ?? 'claude-sonnet-4-6',
         base_url: defaults.default_base_url ?? '',
@@ -482,9 +500,25 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             </Select>
           </Form.Item>
 
-          <Form.Item noStyle shouldUpdate={(p, c) => p.llm_profile_id !== c.llm_profile_id || p.provider !== c.provider}>
+          <Form.Item
+            name="codex_connection_id"
+            label="Codex 登录连接"
+            extra="引用全局共享的 Codex 登录连接；当前仅完成配置建模，服务端运行时尚未接入真实登录通道"
+          >
+            <Select allowClear placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}>
+              {codexConnections.map(connection => (
+                <Option key={connection.id} value={connection.id}>{connection.name}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item noStyle shouldUpdate={(p, c) => (
+            p.llm_profile_id !== c.llm_profile_id
+            || p.codex_connection_id !== c.codex_connection_id
+            || p.provider !== c.provider
+          )}>
             {({ getFieldValue }) => {
-              if (getFieldValue('llm_profile_id')) return null
+              if (getFieldValue('llm_profile_id') || getFieldValue('codex_connection_id')) return null
               const provider = getFieldValue('provider')
               return (
                 <>

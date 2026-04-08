@@ -22,6 +22,7 @@ class AgentNodeCmd:
     max_tokens: int = 4096
     tools: list[str] = field(default_factory=list)
     llm_profile_id: str = ""
+    codex_connection_id: str = ""
     base_url: str = ""       # openai_compat 时必填，其余可留空
     api_key: str = ""        # 节点级覆盖；留空则用环境变量
     work_subdir: str = ""    # 相对于 workspace.work_dir 的子目录名，默认 = agent.name

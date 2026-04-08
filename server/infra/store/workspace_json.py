@@ -14,7 +14,9 @@ from server.domain.agent.entity.agent_entity import (
     AgentEntity,
     ChatMessageEntity,
     ChatSessionEntity,
+    CodexConnectionEntity,
     EdgeCondition,
+    GlobalSettingsEntity,
     GraphEdge,
     GraphEntity,
     LLMProfileEntity,
@@ -56,14 +58,74 @@ def workspace_file_path(data_dir: Path, dir_name: str) -> Path:
 
 
 def load_setting_entries(data_dir: Path) -> list[dict]:
-    raw = read_json(setting_path(data_dir), {"version": 1, "workspaces": []})
+    raw = read_json(setting_path(data_dir), {"version": 2, "workspaces": []})
     if isinstance(raw, dict) and isinstance(raw.get("workspaces"), list):
         return raw["workspaces"]
     return []
 
 
 def save_setting_entries(data_dir: Path, entries: list[dict]) -> None:
-    write_json(setting_path(data_dir), {"version": 1, "workspaces": entries})
+    raw = read_json(setting_path(data_dir), {"version": 2, "workspaces": []})
+    if not isinstance(raw, dict):
+        raw = {"version": 2}
+    raw["version"] = 2
+    raw["workspaces"] = entries
+    write_json(setting_path(data_dir), raw)
+
+
+def load_global_settings(data_dir: Path) -> GlobalSettingsEntity:
+    raw = read_json(setting_path(data_dir), {"version": 2, "workspaces": []})
+    settings = raw.get("global_settings", {}) if isinstance(raw, dict) else {}
+    if not isinstance(settings, dict):
+        settings = {}
+    return GlobalSettingsEntity(
+        default_provider=LLMProvider(settings.get("default_provider", "anthropic")),
+        default_model=settings.get("default_model", "claude-sonnet-4-6"),
+        default_base_url=settings.get("default_base_url", ""),
+        default_api_key=settings.get("default_api_key", ""),
+        llm_profiles=[
+            LLMProfileEntity(
+                id=p["id"],
+                name=p["name"],
+                provider=LLMProvider(p["provider"]),
+                model=p["model"],
+                base_url=p.get("base_url", ""),
+                api_key=p.get("api_key", ""),
+            )
+            for p in settings.get("llm_profiles", [])
+            if isinstance(p, dict) and "id" in p and "name" in p and "provider" in p and "model" in p
+        ],
+        codex_connections=[
+            CodexConnectionEntity(
+                id=item["id"],
+                name=item["name"],
+                provider=LLMProvider(item.get("provider", "openai_codex")),
+                auth_mode=item.get("auth_mode", "chatgpt_codex_login"),
+                account_label=item.get("account_label", ""),
+                status=item.get("status", "disconnected"),
+                credential_ref=item.get("credential_ref", ""),
+                last_verified_at=item.get("last_verified_at", ""),
+            )
+            for item in settings.get("codex_connections", [])
+            if isinstance(item, dict) and "id" in item and "name" in item
+        ],
+    )
+
+
+def save_global_settings(data_dir: Path, settings: GlobalSettingsEntity) -> None:
+    raw = read_json(setting_path(data_dir), {"version": 2, "workspaces": []})
+    if not isinstance(raw, dict):
+        raw = {"version": 2, "workspaces": []}
+    raw["version"] = 2
+    raw["global_settings"] = {
+        "default_provider": settings.default_provider,
+        "default_model": settings.default_model,
+        "default_base_url": settings.default_base_url,
+        "default_api_key": settings.default_api_key,
+        "llm_profiles": [dataclasses.asdict(profile) for profile in settings.llm_profiles],
+        "codex_connections": [dataclasses.asdict(item) for item in settings.codex_connections],
+    }
+    write_json(setting_path(data_dir), raw)
 
 
 def load_workspace_payload(path: Path) -> dict:
@@ -80,11 +142,6 @@ def workspace_to_payload(ws: WorkspaceEntity, graphs: list[GraphEntity]) -> dict
         "name": ws.name,
         "work_dir": ws.work_dir,
         "dir_name": ws.dir_name,
-        "default_provider": ws.default_provider,
-        "default_model": ws.default_model,
-        "default_base_url": ws.default_base_url,
-        "default_api_key": ws.default_api_key,
-        "llm_profiles": [dataclasses.asdict(profile) for profile in ws.llm_profiles],
         "coordinator": dataclasses.asdict(ws.coordinator) if ws.coordinator else None,
         "workers": [dataclasses.asdict(worker) for worker in ws.workers],
         "sessions": [dataclasses.asdict(session) for session in ws.sessions],
@@ -112,6 +169,20 @@ def workspace_from_payload(d: dict) -> WorkspaceEntity:
                 api_key=p.get("api_key", ""),
             )
             for p in d.get("llm_profiles", [])
+        ],
+        codex_connections=[
+            CodexConnectionEntity(
+                id=item["id"],
+                name=item["name"],
+                provider=LLMProvider(item.get("provider", "openai_codex")),
+                auth_mode=item.get("auth_mode", "chatgpt_codex_login"),
+                account_label=item.get("account_label", ""),
+                status=item.get("status", "disconnected"),
+                credential_ref=item.get("credential_ref", ""),
+                last_verified_at=item.get("last_verified_at", ""),
+            )
+            for item in d.get("codex_connections", [])
+            if isinstance(item, dict) and "id" in item and "name" in item
         ],
         coordinator=_agent_from_dict(d["coordinator"]) if d.get("coordinator") else None,
         workers=[_agent_from_dict(worker) for worker in d.get("workers", [])],
@@ -155,6 +226,7 @@ def _agent_from_dict(d: dict) -> AgentEntity:
         max_tokens=d.get("max_tokens", 4096),
         tools=d.get("tools", []),
         llm_profile_id=d.get("llm_profile_id", ""),
+        codex_connection_id=d.get("codex_connection_id", ""),
         base_url=d.get("base_url", ""),
         api_key=d.get("api_key", ""),
         work_subdir=d.get("work_subdir", ""),

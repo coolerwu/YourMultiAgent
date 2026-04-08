@@ -1,0 +1,28 @@
+{
+  "name": "@yourmultiagent/worker-client",
+  "version": "0.1.0",
+  "description": "YourMultiAgent browser worker client for WebSocket remote worker registration.",
+  "type": "module",
+  "bin": {
+    "yourmultiagent-browser-worker": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node ./src/cli.js",
+    "check": "node --check ./src/cli.js && node --check ./src/browserWorkerClient.js && node --check ./src/mockSmoke.js",
+    "smoke:mock": "node ./src/mockSmoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0",
+    "ws": "^8.18.2"
+  },
+  "keywords": [
+    "yourmultiagent",
+    "worker",
+    "browser",
+    "playwright"
+  ],
+  "license": "MIT"
+}

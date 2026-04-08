@@ -50,6 +50,15 @@ def _resolve_llm_config(
     agent: AgentEntity,
     workspace: WorkspaceEntity | None,
 ) -> tuple[LLMProvider, str, str, str]:
+    if workspace and agent.codex_connection_id:
+        connection = next((item for item in workspace.codex_connections if item.id == agent.codex_connection_id), None)
+        if connection is None:
+            raise ValueError(f"Agent '{agent.name}' 引用了不存在的 Codex 登录连接: {agent.codex_connection_id}")
+        raise ValueError(
+            f"Agent '{agent.name}' 选择了 Codex 登录连接 '{connection.name}'，"
+            "但当前服务端运行时尚未接入 ChatGPT Codex 登录通道。"
+        )
+
     if workspace and agent.llm_profile_id:
         profile = next((p for p in workspace.llm_profiles if p.id == agent.llm_profile_id), None)
         if profile is None:

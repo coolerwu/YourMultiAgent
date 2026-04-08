@@ -10,14 +10,19 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from server.domain.agent.entity.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, LLMProvider, WorkspaceEntity
-from server.domain.agent.service.workspace_executor import WorkspaceExecutor
+from server.domain.agent.service.workspace_executor import WorkspaceExecutor, _build_agent_system_prompt
+from server.domain.worker.entity.capability_entity import CapabilityEntity
 
 
 class FakeLLM:
+    def __init__(self):
+        self.seen_messages = []
+
     def bind_tools(self, _tools):
         return self
 
     async def astream(self, messages):
+        self.seen_messages.append(messages)
         last = messages[-1].content
         if "可用 Worker" in last:
             yield SimpleNamespace(content="先产品后研发", tool_calls=[])
@@ -92,3 +97,66 @@ async def test_workspace_executor_runs_workers_by_order_and_emits_actor_name(tmp
 
     shared_dir = tmp_path / "shared"
     assert shared_dir.exists()
+
+
+def test_build_agent_system_prompt_includes_browser_guidance():
+    agent = AgentEntity(
+        id="browser-agent",
+        name="浏览器执行",
+        provider=LLMProvider.ANTHROPIC,
+        model="claude-sonnet-4-6",
+        system_prompt="你是浏览器执行助手。",
+    )
+    prompt = _build_agent_system_prompt(
+        agent,
+        [
+            CapabilityEntity(name="browser_open", description="打开页面", category="browser_read"),
+            CapabilityEntity(name="browser_click", description="点击元素", category="browser_write", risk_level="medium"),
+            CapabilityEntity(name="browser_get_text", description="读取文本", category="browser_read"),
+        ],
+    )
+
+    assert "browser_open" in prompt
+    assert "session_id" in prompt
+    assert "先读取再交互" in prompt
+    assert "高风险浏览器写工具" in prompt
+
+
+@pytest.mark.asyncio
+async def test_workspace_executor_injects_browser_guidance_into_system_prompt(tmp_path):
+    workspace = WorkspaceEntity(
+        id="ws-2",
+        name="Browser Demo",
+        work_dir=str(tmp_path),
+        coordinator=AgentEntity(
+            id="coordinator",
+            name="主控智能体",
+            provider=LLMProvider.ANTHROPIC,
+            model="claude-sonnet-4-6",
+            system_prompt="你是主控",
+            tools=["browser_open", "browser_click"],
+        ),
+        workers=[],
+    )
+    worker_gateway = MagicMock()
+    worker_gateway.list_capabilities.return_value = [
+        CapabilityEntity(name="browser_open", description="打开页面", category="browser_read"),
+        CapabilityEntity(name="browser_click", description="点击元素", category="browser_write", risk_level="medium"),
+    ]
+    worker_gateway.invoke = AsyncMock()
+    llm = FakeLLM()
+    llm_factory = MagicMock()
+    llm_factory.build.return_value = llm
+
+    executor = WorkspaceExecutor(workspace, worker_gateway, llm_factory)
+    session = ChatSessionEntity(
+        id="session-2",
+        title="测试会话",
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    _ = [event async for event in executor.run("打开网页检查内容", session)]
+
+    system_messages = [batch[0].content for batch in llm.seen_messages if batch]
+    assert any("工具使用约束" in item for item in system_messages)
+    assert any("browser_close" in item for item in system_messages)

@@ -10,7 +10,15 @@ from pathlib import Path
 
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
 from server.config import get_data_dir
-from server.domain.agent.entity.agent_entity import AgentEntity, ChatSessionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.entity.agent_entity import (
+    AgentEntity,
+    ChatSessionEntity,
+    CodexConnectionEntity,
+    GlobalSettingsEntity,
+    LLMProfileEntity,
+    LLMProvider,
+    WorkspaceEntity,
+)
 from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
 from server.domain.agent.service.session_history import create_session
 
@@ -26,6 +34,18 @@ class LLMProfileCmd:
 
 
 @dataclass
+class CodexConnectionCmd:
+    id: str
+    name: str
+    provider: LLMProvider = LLMProvider.OPENAI_CODEX
+    auth_mode: str = "chatgpt_codex_login"
+    account_label: str = ""
+    status: str = "disconnected"
+    credential_ref: str = ""
+    last_verified_at: str = ""
+
+
+@dataclass
 class CreateWorkspaceCmd:
     name: str
     work_dir: str
@@ -34,6 +54,7 @@ class CreateWorkspaceCmd:
     default_base_url: str = ""
     default_api_key: str = ""
     llm_profiles: list[LLMProfileCmd] = field(default_factory=list)
+    codex_connections: list[CodexConnectionCmd] = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +67,7 @@ class UpdateWorkspaceCmd:
     default_base_url: str = ""
     default_api_key: str = ""
     llm_profiles: list[LLMProfileCmd] = field(default_factory=list)
+    codex_connections: list[CodexConnectionCmd] = field(default_factory=list)
 
 
 @dataclass
@@ -60,17 +82,20 @@ class WorkspaceAppService:
         self._gateway = gateway
 
     async def create_workspace(self, cmd: CreateWorkspaceCmd) -> WorkspaceEntity:
+        settings = await self._gateway.load_global_settings()
+        effective = _effective_global_settings(settings, cmd)
         ws = WorkspaceEntity(
             id=str(uuid.uuid4()),
             name=cmd.name,
             work_dir=_resolve_workspace_dir(cmd.name, cmd.work_dir),
             dir_name="",
-            default_provider=cmd.default_provider,
-            default_model=cmd.default_model,
-            default_base_url=cmd.default_base_url,
-            default_api_key=cmd.default_api_key,
-            llm_profiles=[_to_profile_entity(p) for p in cmd.llm_profiles],
-            coordinator=_default_coordinator(cmd.default_provider, cmd.default_model),
+            default_provider=effective.default_provider,
+            default_model=effective.default_model,
+            default_base_url=effective.default_base_url,
+            default_api_key=effective.default_api_key,
+            llm_profiles=list(effective.llm_profiles),
+            codex_connections=list(effective.codex_connections),
+            coordinator=_default_coordinator(effective.default_provider, effective.default_model),
             workers=[],
         )
         await self._gateway.save(ws)
@@ -78,17 +103,19 @@ class WorkspaceAppService:
 
     async def update_workspace(self, cmd: UpdateWorkspaceCmd) -> WorkspaceEntity:
         current = await self._gateway.find_by_id(cmd.workspace_id)
+        settings = await self._gateway.load_global_settings()
         ws = WorkspaceEntity(
             id=cmd.workspace_id,
             name=cmd.name,
             work_dir=_resolve_workspace_dir(cmd.name, cmd.work_dir),
             dir_name="",
-            default_provider=cmd.default_provider,
-            default_model=cmd.default_model,
-            default_base_url=cmd.default_base_url,
-            default_api_key=cmd.default_api_key,
-            llm_profiles=[_to_profile_entity(p) for p in cmd.llm_profiles],
-            coordinator=current.coordinator if current else _default_coordinator(cmd.default_provider, cmd.default_model),
+            default_provider=settings.default_provider,
+            default_model=settings.default_model,
+            default_base_url=settings.default_base_url,
+            default_api_key=settings.default_api_key,
+            llm_profiles=list(settings.llm_profiles),
+            codex_connections=list(settings.codex_connections),
+            coordinator=current.coordinator if current else _default_coordinator(settings.default_provider, settings.default_model),
             workers=current.workers if current else [],
             sessions=current.sessions if current else [],
         )
@@ -165,6 +192,22 @@ class WorkspaceAppService:
         await self._gateway.save(current)
         return current
 
+    async def get_global_settings(self) -> GlobalSettingsEntity:
+        return await self._gateway.load_global_settings()
+
+    async def update_global_settings(self, settings: GlobalSettingsEntity) -> GlobalSettingsEntity:
+        saved = await self._gateway.save_global_settings(settings)
+        workspaces = await self._gateway.find_all()
+        for workspace in workspaces:
+            workspace.default_provider = saved.default_provider
+            workspace.default_model = saved.default_model
+            workspace.default_base_url = saved.default_base_url
+            workspace.default_api_key = saved.default_api_key
+            workspace.llm_profiles = list(saved.llm_profiles)
+            workspace.codex_connections = list(saved.codex_connections)
+            await self._gateway.save(workspace)
+        return saved
+
 
 def _to_profile_entity(cmd: LLMProfileCmd) -> LLMProfileEntity:
     return LLMProfileEntity(
@@ -174,6 +217,37 @@ def _to_profile_entity(cmd: LLMProfileCmd) -> LLMProfileEntity:
         model=cmd.model,
         base_url=cmd.base_url,
         api_key=cmd.api_key,
+    )
+
+
+def _to_codex_connection_entity(cmd: CodexConnectionCmd) -> CodexConnectionEntity:
+    return CodexConnectionEntity(
+        id=cmd.id or str(uuid.uuid4()),
+        name=cmd.name,
+        provider=cmd.provider,
+        auth_mode=cmd.auth_mode,
+        account_label=cmd.account_label,
+        status=cmd.status,
+        credential_ref=cmd.credential_ref,
+        last_verified_at=cmd.last_verified_at,
+    )
+
+
+def _effective_global_settings(current: GlobalSettingsEntity, cmd: CreateWorkspaceCmd) -> GlobalSettingsEntity:
+    use_cmd_defaults = (
+        not current.llm_profiles
+        and current.default_provider == LLMProvider.ANTHROPIC
+        and current.default_model == "claude-sonnet-4-6"
+        and not current.default_base_url
+        and not current.default_api_key
+    )
+    return GlobalSettingsEntity(
+        default_provider=cmd.default_provider if use_cmd_defaults else current.default_provider,
+        default_model=cmd.default_model if use_cmd_defaults else current.default_model,
+        default_base_url=cmd.default_base_url if use_cmd_defaults else current.default_base_url,
+        default_api_key=cmd.default_api_key if use_cmd_defaults else current.default_api_key,
+        llm_profiles=[_to_profile_entity(p) for p in cmd.llm_profiles] if use_cmd_defaults else list(current.llm_profiles),
+        codex_connections=[_to_codex_connection_entity(item) for item in cmd.codex_connections] if use_cmd_defaults else list(current.codex_connections),
     )
 
 
@@ -218,6 +292,7 @@ def _to_agent_entity(cmd: AgentNodeCmd) -> AgentEntity:
         max_tokens=cmd.max_tokens,
         tools=cmd.tools,
         llm_profile_id=cmd.llm_profile_id,
+        codex_connection_id=cmd.codex_connection_id,
         base_url=cmd.base_url,
         api_key=cmd.api_key,
         work_subdir=cmd.work_subdir,
@@ -244,6 +319,7 @@ def _normalize_workers(workers: list[AgentEntity]) -> list[AgentEntity]:
             max_tokens=worker.max_tokens,
             tools=list(worker.tools),
             llm_profile_id=worker.llm_profile_id,
+            codex_connection_id=worker.codex_connection_id,
             base_url=worker.base_url,
             api_key=worker.api_key,
             work_subdir=worker.work_subdir,

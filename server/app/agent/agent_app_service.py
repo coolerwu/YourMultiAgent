@@ -173,6 +173,7 @@ class AgentAppService:
             max_tokens=cmd.max_tokens,
             tools=cmd.tools,
             llm_profile_id=cmd.llm_profile_id,
+            codex_connection_id=cmd.codex_connection_id,
             base_url=cmd.base_url,
             api_key=cmd.api_key,
         )
@@ -195,6 +196,7 @@ class AgentAppService:
             model=cmd.model,
             system_prompt="你负责生成 Worker 配置草稿。",
             llm_profile_id=cmd.llm_profile_id,
+            codex_connection_id=cmd.codex_connection_id,
             base_url=cmd.base_url,
             api_key=cmd.api_key,
         )

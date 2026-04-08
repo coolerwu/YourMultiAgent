@@ -42,7 +42,8 @@ YourMultiAgent/
 │   ├── domain/
 │   ├── infra/
 │   └── tests/
-└── web/                     # React 前端（构建输出到 server/web/）
+├── web/                     # React 前端（构建输出到 server/web/）
+└── worker_client/           # npm 浏览器 Worker 客户端（Playwright）
 ```
 
 ## 快速开始
@@ -64,7 +65,33 @@ cd web && npm install
 
 ### 3) 启动服务
 
-#### 方式 A：直接启动后端（开发常用）
+#### 方式 A：一键生产部署（开源快速部署）
+
+适合服务器首次安装或后续增量更新。先通过 HTTP 下载 `run.sh`，再直接执行：
+
+```bash
+curl -O https://raw.githubusercontent.com/coolerwu/YourMultiAgent/main/run.sh
+chmod +x run.sh
+./run.sh prod 10000
+```
+
+该命令会自动：
+
+- 优先通过 `https://github.com/coolerwu/YourMultiAgent.git` clone / pull 代码
+- 如果服务器没有 `git`，自动回退到下载 GitHub 源码包并解压
+- 创建或复用 `~/.yourmultiagent` 作为生产数据目录
+- 创建 `.venv` 并安装运行时依赖
+- 注册或更新 `systemd` 服务 `yourmultiagent`
+- 启动或重启服务，并验证 `/api/health`
+
+前提：
+
+- 服务器已具备 `python3`、`python3-venv`、`sudo`、`systemctl`
+- 若服务器没有 `git`，还需要具备 `curl` 和 `tar`
+- 前端构建产物 `server/web/` 已进入 Git 仓库，否则远端拉代码后不会拿到最新页面
+- 生产数据必须放在 `~/.yourmultiagent`，不要放进项目目录下的 `data/`
+
+#### 方式 B：直接启动后端（开发常用）
 
 ```bash
 cd server && python main.py
@@ -72,7 +99,7 @@ cd server && python main.py
 
 服务默认监听：`http://localhost:8080`
 
-#### 方式 B：使用 CLI（推荐统一入口）
+#### 方式 C：使用 CLI（推荐统一入口）
 
 ```bash
 # 开发模式（DATA_DIR=./data）
@@ -99,6 +126,20 @@ yourmultiagent worker --server ws://localhost:8080 --name my-worker
 ```
 
 后端会通过 `/ws/worker` 接收并管理远程 Worker 注册。
+
+### Browser Worker Client
+
+仓库内置了一个可单独作为 npm 包运行的浏览器 Worker：
+
+```bash
+cd worker_client
+npm install
+npx playwright install chromium
+npx yourmultiagent-browser-worker --server ws://localhost:8080 --name browser-worker-1
+```
+
+它会注册 `browser_*` 能力，并可在 Worker 管理页中按模板授权。
+支持通过 `--allow-origin`、`--max-sessions`、`--max-screenshot-kb`、`--max-text-chars`、`--max-html-chars` 添加基础安全限制。
 
 ## API 与 WS 入口（后端）
 

@@ -57,6 +57,12 @@ class WsWorkerClient:
             await ws.send(json.dumps({
                 "type": "register",
                 "worker_id": self._name,
+                "worker_meta": {
+                    "kind": "generic",
+                    "label": self._name,
+                    "version": "1.0.0",
+                    "platform": "",
+                },
                 "capabilities": [_cap_to_dict(c) for c in caps],
             }))
 

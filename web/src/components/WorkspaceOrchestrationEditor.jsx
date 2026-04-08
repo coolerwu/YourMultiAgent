@@ -43,6 +43,7 @@ function emptyAgent(defaults, role) {
     max_tokens: 4096,
     tools: [],
     llm_profile_id: defaults?.llm_profiles?.[0]?.id ?? '',
+    codex_connection_id: '',
     base_url: '',
     api_key: '',
     work_subdir: role === 'coordinator' ? 'coordinator' : '',
@@ -84,6 +85,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
   })
   const [form] = Form.useForm()
   const llmProfiles = workspace?.llm_profiles ?? []
+  const codexConnections = workspace?.codex_connections ?? []
 
   useEffect(() => {
     workerApi.listCapabilities().then(setCapabilities).catch(() => {})
@@ -147,6 +149,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
         provider: workspace?.default_provider ?? coordinator.provider ?? 'anthropic',
         model: workspace?.default_model ?? coordinator.model ?? 'claude-sonnet-4-6',
         llm_profile_id: coordinator.llm_profile_id ?? '',
+        codex_connection_id: coordinator.codex_connection_id ?? '',
         base_url: coordinator.base_url ?? '',
         api_key: coordinator.api_key ?? '',
       })
@@ -213,6 +216,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
         max_tokens: values.max_tokens ?? 4096,
         tools: values.tools ?? [],
         llm_profile_id: values.llm_profile_id ?? '',
+        codex_connection_id: values.codex_connection_id ?? '',
         base_url: values.base_url ?? '',
         api_key: values.api_key ?? '',
       })
@@ -351,9 +355,20 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
               ))}
             </Select>
           </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.llm_profile_id !== cur.llm_profile_id || prev.provider !== cur.provider}>
+          <Form.Item name="codex_connection_id" label="Codex 登录连接">
+            <Select allowClear placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}>
+              {codexConnections.map((connection) => (
+                <Option key={connection.id} value={connection.id}>{connection.name}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => (
+            prev.llm_profile_id !== cur.llm_profile_id
+            || prev.codex_connection_id !== cur.codex_connection_id
+            || prev.provider !== cur.provider
+          )}>
             {({ getFieldValue }) => {
-              if (getFieldValue('llm_profile_id')) return null
+              if (getFieldValue('llm_profile_id') || getFieldValue('codex_connection_id')) return null
               const provider = getFieldValue('provider')
               return (
                 <>

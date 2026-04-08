@@ -29,6 +29,10 @@ class CapabilityEntity:
     description: str                             # 给 LLM 看的功能描述
     parameters: list[ParameterSchema] = field(default_factory=list)
     worker_id: str = "local"                     # 归属的 Worker（初期固定 local）
+    category: str = "general"
+    risk_level: str = "low"
+    requires_session: bool = False
+    description_for_model: str = ""
 
     def to_tool_schema(self) -> dict:
         """转为 LLM tool_use 格式（兼容 Anthropic / OpenAI）"""
@@ -42,7 +46,7 @@ class CapabilityEntity:
                 required.append(p.name)
         return {
             "name": self.name,
-            "description": self.description,
+            "description": self.description_for_model or self.description,
             "input_schema": {
                 "type": "object",
                 "properties": properties,

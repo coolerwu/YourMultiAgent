@@ -22,6 +22,7 @@ class AgentNodeVO:
     max_tokens: int
     tools: list[str]
     llm_profile_id: str = ""
+    codex_connection_id: str = ""
     base_url: str = ""
     api_key: str = ""
     work_subdir: str = ""

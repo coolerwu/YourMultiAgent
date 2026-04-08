@@ -12,6 +12,10 @@ const WORKING_ANIM = { v: '5.9.0', fr: 24, ip: 0, op: 48, w: 120, h: 120, assets
 const DONE_ANIM = { v: '5.9.0', fr: 24, ip: 0, op: 36, w: 120, h: 120, assets: [], layers: [{ ty: 4, nm: 'done', ind: 1, ip: 0, op: 36, st: 0, ks: { o: { a: 0, k: 100 }, r: { a: 0, k: 0 }, p: { a: 0, k: [60, 60, 0] }, a: { a: 0, k: [0, 0, 0] }, s: { a: 1, k: [{ t: 0, s: [0, 0, 100] }, { t: 18, s: [100, 100, 100] }] } }, shapes: [{ ty: 'el', p: { a: 0, k: [0, 0] }, s: { a: 0, k: [70, 70] } }, { ty: 'fl', c: { a: 0, k: [0.32, 0.77, 0.32, 1] }, o: { a: 0, k: 100 } }] }] }
 
 function resolveAgentModel(agent, workspace) {
+  const codexConnection = workspace?.codex_connections?.find((item) => item.id === agent.codex_connection_id)
+  if (codexConnection) {
+    return codexConnection.name
+  }
   const profile = workspace?.llm_profiles?.find((item) => item.id === agent.llm_profile_id)
   if (profile) {
     return profile.model

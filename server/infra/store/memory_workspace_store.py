@@ -6,13 +6,14 @@ WorkspaceGateway 的内存实现。
 
 from typing import Optional
 
-from server.domain.agent.entity.agent_entity import WorkspaceEntity
+from server.domain.agent.entity.agent_entity import GlobalSettingsEntity, WorkspaceEntity
 from server.domain.agent.gateway.workspace_gateway import WorkspaceGateway
 
 
 class MemoryWorkspaceStore(WorkspaceGateway):
     def __init__(self) -> None:
         self._store: dict[str, WorkspaceEntity] = {}
+        self._settings = GlobalSettingsEntity()
 
     async def save(self, ws: WorkspaceEntity) -> None:
         self._store[ws.id] = ws
@@ -28,3 +29,10 @@ class MemoryWorkspaceStore(WorkspaceGateway):
             del self._store[ws_id]
             return True
         return False
+
+    async def load_global_settings(self) -> GlobalSettingsEntity:
+        return self._settings
+
+    async def save_global_settings(self, settings: GlobalSettingsEntity) -> GlobalSettingsEntity:
+        self._settings = settings
+        return self._settings

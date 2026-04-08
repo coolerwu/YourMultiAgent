@@ -20,5 +20,6 @@ class GenerateWorkerCmd:
     provider: LLMProvider = LLMProvider.ANTHROPIC
     model: str = "claude-sonnet-4-6"
     llm_profile_id: str = ""
+    codex_connection_id: str = ""
     base_url: str = ""
     api_key: str = ""

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from server.container import get_worker_router
 from server.domain.worker.entity.capability_entity import CapabilityEntity, ParameterSchema
+from server.domain.worker.entity.worker_entity import WorkerMetaEntity
 from server.infra.worker.remote_worker_proxy import RemoteWorkerProxy
 from server.infra.worker.worker_router import WorkerRouter
 
@@ -42,11 +43,31 @@ async def worker_ws(
         worker_id = msg.get("worker_id", "unknown")
         raw_caps = msg.get("capabilities", [])
         capabilities = [_cap_from_dict(c) for c in raw_caps]
+        raw_meta = msg.get("worker_meta", {})
+        meta = WorkerMetaEntity(
+            worker_id=worker_id,
+            kind=raw_meta.get("kind", "generic"),
+            label=raw_meta.get("label", worker_id),
+            version=raw_meta.get("version", ""),
+            platform=raw_meta.get("platform", ""),
+            browser_type=raw_meta.get("browser_type", ""),
+            headless=raw_meta.get("headless", True),
+            allowed_origins=raw_meta.get("allowed_origins", []),
+            max_sessions=raw_meta.get("max_sessions", 0),
+            max_screenshot_bytes=raw_meta.get("max_screenshot_bytes", 0),
+            max_text_chars=raw_meta.get("max_text_chars", 0),
+            max_html_chars=raw_meta.get("max_html_chars", 0),
+            source=f"{ws.client.host}:{ws.client.port}" if ws.client else "",
+        )
 
-        proxy = RemoteWorkerProxy(worker_id, capabilities, ws)
+        proxy = RemoteWorkerProxy(worker_id, capabilities, ws, meta=meta)
         worker_router.register_remote(proxy)
-        await ws.send_json({"type": "registered", "worker_id": worker_id,
-                            "capabilities_count": len(capabilities)})
+        await ws.send_json({
+            "type": "registered",
+            "worker_id": worker_id,
+            "capabilities_count": len(capabilities),
+            "enabled_capabilities_count": len(proxy.list_capabilities()),
+        })
 
         # 持续接收 result 消息
         async for data in ws.iter_json():
@@ -56,6 +77,8 @@ async def worker_ws(
                     result=data.get("result"),
                     error=data.get("error"),
                 )
+            else:
+                proxy.mark_seen()
 
     except WebSocketDisconnect:
         pass
@@ -83,4 +106,8 @@ def _cap_from_dict(d: dict) -> CapabilityEntity:
         description=d.get("description", ""),
         parameters=params,
         worker_id=d.get("worker_id", "remote"),
+        category=d.get("category", "general"),
+        risk_level=d.get("risk_level", "low"),
+        requires_session=d.get("requires_session", False),
+        description_for_model=d.get("description_for_model", ""),
     )

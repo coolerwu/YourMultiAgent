@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.adapter.agent_controller import router as agent_router
 from server.adapter.agent_ws import router as agent_ws_router
+from server.adapter.settings_controller import router as settings_router
 from server.adapter.worker_controller import router as worker_router
 from server.adapter.worker_ws import router as worker_ws_router
 from server.adapter.workspace_controller import router as workspace_router
@@ -39,6 +40,7 @@ app.add_middleware(
 # ── API 路由 ──────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(agent_ws_router)    # WebSocket: /ws/workspaces/{id}/run
+app.include_router(settings_router)
 app.include_router(worker_router)
 app.include_router(workspace_router)
 app.include_router(worker_ws_router)   # WebSocket: /ws/worker

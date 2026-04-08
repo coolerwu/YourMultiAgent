@@ -21,4 +21,7 @@ export const graphApi = {
 
 export const workerApi = {
   listCapabilities: () => api.get('/api/workers/capabilities'),
+  listWorkers: () => api.get('/api/workers'),
+  updateEnabledCapabilities: (workerId, capabilityNames) =>
+    api.put(`/api/workers/${workerId}/enabled-capabilities`, { capability_names: capabilityNames }),
 }
