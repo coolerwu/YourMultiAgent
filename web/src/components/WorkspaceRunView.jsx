@@ -1,6 +1,6 @@
 import Lottie from 'lottie-react'
 import { CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons'
-import { Button, Empty, Input, Space, Tag, Typography, message as antdMessage } from 'antd'
+import { Button, Drawer, Empty, Input, Space, Tag, Typography, message as antdMessage } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
 
@@ -87,6 +87,8 @@ function normalizeSession(session) {
 
 export default function WorkspaceRunView({ workspace }) {
   const isChat = workspace?.kind === 'chat'
+  const [isCompact, setIsCompact] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 900 : false))
+  const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState([])
   const [running, setRunning] = useState(false)
@@ -150,6 +152,20 @@ export default function WorkspaceRunView({ workspace }) {
         setSessionMeta({ summary: '', memory_items: [] })
       })
   }, [workspace?.id])
+
+  useEffect(() => {
+    const handleResize = () => {
+      const compact = window.innerWidth <= 900
+      setIsCompact(compact)
+      if (!compact) {
+        setSessionDrawerOpen(false)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
 
   useEffect(() => {
     if (!workspace?.id || !activeSessionId) return
@@ -356,56 +372,70 @@ export default function WorkspaceRunView({ workspace }) {
     return <div style={{ padding: 32, color: '#aaa', fontSize: 14 }}>请先选择一个 Workspace</div>
   }
 
+  const renderSessionList = () => (
+    <div style={{ width: 280, borderRight: isCompact ? 'none' : '1px solid #f0f0f0', background: '#fafafa', display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: 12, borderBottom: '1px solid #f0f0f0' }}>
+        <Button type="primary" icon={<PlusOutlined />} block onClick={createSession} disabled={running}>
+          新建会话
+        </Button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
+        {sessions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史会话" />}
+        {sessions.map((session) => (
+          <div
+            key={session.id}
+            onClick={() => {
+              setActiveSessionId(session.id)
+              setSessionDrawerOpen(false)
+            }}
+            style={{
+              padding: 12,
+              borderRadius: 12,
+              cursor: 'pointer',
+              background: session.id === activeSessionId ? '#e6f4ff' : '#fff',
+              border: session.id === activeSessionId ? '1px solid #91caff' : '1px solid #f0f0f0',
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <Text strong ellipsis style={{ maxWidth: 180 }}>{session.title || '新会话'}</Text>
+              <Button
+                size="small"
+                type="text"
+                icon={<DeleteOutlined />}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  removeSession(session.id).catch(() => antdMessage.error('删除会话失败'))
+                }}
+                disabled={running}
+              />
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <Tag icon={<MessageOutlined />} color="default">{session.message_count || 0} 条</Tag>
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {formatTime(session.updated_at)}
+            </Text>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
     <div style={{ display: 'flex', height: '100%' }}>
-      <div style={{ width: 280, borderRight: '1px solid #f0f0f0', background: '#fafafa', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: 12, borderBottom: '1px solid #f0f0f0' }}>
-          <Button type="primary" icon={<PlusOutlined />} block onClick={createSession} disabled={running}>
-            新建会话
-          </Button>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
-          {sessions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史会话" />}
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              onClick={() => setActiveSessionId(session.id)}
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                cursor: 'pointer',
-                background: session.id === activeSessionId ? '#e6f4ff' : '#fff',
-                border: session.id === activeSessionId ? '1px solid #91caff' : '1px solid #f0f0f0',
-                marginBottom: 8,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <Text strong ellipsis style={{ maxWidth: 180 }}>{session.title || '新会话'}</Text>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<DeleteOutlined />}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    removeSession(session.id).catch(() => antdMessage.error('删除会话失败'))
-                  }}
-                  disabled={running}
-                />
-              </div>
-              <div style={{ marginTop: 6 }}>
-                <Tag icon={<MessageOutlined />} color="default">{session.message_count || 0} 条</Tag>
-              </div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {formatTime(session.updated_at)}
-              </Text>
-            </div>
-          ))}
-        </div>
-      </div>
+      {!isCompact && renderSessionList()}
 
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
         {isChat ? (
           <div style={{ padding: '16px', background: '#f7f8fa', borderBottom: '1px solid #f0f0f0' }}>
+            {isCompact && (
+              <div style={{ marginBottom: 10 }}>
+                <Button icon={<MessageOutlined />} onClick={() => setSessionDrawerOpen(true)}>
+                  会话列表
+                </Button>
+              </div>
+            )}
             <Text strong>{workspace?.name || '单聊目录'}</Text>
             <div style={{ marginTop: 6 }}>
               <Text type="secondary">当前目录中的历史会话、compact 摘要和 memory 会持续复用。</Text>
@@ -413,6 +443,13 @@ export default function WorkspaceRunView({ workspace }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, padding: '20px 16px', background: '#f7f8fa', borderBottom: '1px solid #f0f0f0', minHeight: 190 }}>
+            {isCompact && (
+              <div style={{ width: '100%' }}>
+                <Button icon={<MessageOutlined />} onClick={() => setSessionDrawerOpen(true)}>
+                  会话列表
+                </Button>
+              </div>
+            )}
             {orderedParticipants.map((agent) => <AgentCard key={agent.id} agent={agent} state={states[agent.id] || 'idle'} workspace={workspace} />)}
           </div>
         )}
@@ -476,6 +513,16 @@ export default function WorkspaceRunView({ workspace }) {
           </Space.Compact>
         </div>
       </div>
+      <Drawer
+        title="会话列表"
+        placement="left"
+        width={300}
+        open={isCompact && sessionDrawerOpen}
+        onClose={() => setSessionDrawerOpen(false)}
+        styles={{ body: { padding: 0 } }}
+      >
+        {renderSessionList()}
+      </Drawer>
     </div>
   )
 }
