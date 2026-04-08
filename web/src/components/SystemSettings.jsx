@@ -7,6 +7,7 @@ const { Text } = Typography
 
 export default function SystemSettings() {
   const hasTriggeredReloadRef = useRef(false)
+  const shouldReloadOnSuccessRef = useRef(false)
   const [codexConnections, setCodexConnections] = useState([])
   const [codexActionHints, setCodexActionHints] = useState({})
   const [runningCodexActionId, setRunningCodexActionId] = useState('')
@@ -23,6 +24,7 @@ export default function SystemSettings() {
 
   useEffect(() => {
     if (!['running', 'restarting'].includes(updateStatus.status)) return
+    shouldReloadOnSuccessRef.current = true
     const timer = window.setInterval(() => {
       workspaceApi.getUpdateNowStatus().then(setUpdateStatus).catch(() => {})
     }, 1500)
@@ -30,7 +32,7 @@ export default function SystemSettings() {
   }, [updateStatus.status])
 
   useEffect(() => {
-    if (updateStatus.status !== 'success' || hasTriggeredReloadRef.current) return
+    if (updateStatus.status !== 'success' || hasTriggeredReloadRef.current || !shouldReloadOnSuccessRef.current) return
     hasTriggeredReloadRef.current = true
     message.success('Update Now 已完成，正在刷新页面')
     const timer = window.setTimeout(() => {
@@ -103,7 +105,10 @@ export default function SystemSettings() {
   }, [updateStatus.status])
 
   return (
-    <div style={{ padding: 20, background: '#fff', minHeight: '100vh' }}>
+    <div
+      data-testid="system-settings-scroll"
+      style={{ height: '100%', overflowY: 'auto', padding: 20, background: '#fff' }}
+    >
       <div style={{ maxWidth: 960 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>

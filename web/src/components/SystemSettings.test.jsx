@@ -109,6 +109,36 @@ describe('SystemSettings', () => {
 
   it('reloads page after update now succeeds', async () => {
     vi.useRealTimers()
+    workspaceApiMock.getUpdateNowStatus
+      .mockResolvedValueOnce({
+        status: 'idle',
+        logs: [],
+        steps: [],
+        error: '',
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        logs: ['更新完成'],
+        steps: [],
+        error: '',
+      })
+
+    render(<SystemSettings />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Update Now/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '开始更新' }))
+
+    await waitFor(() => {
+      expect(workspaceApiMock.startUpdateNow).toHaveBeenCalledTimes(1)
+    })
+
+    await waitFor(() => {
+      expect(window.location.reload).toHaveBeenCalledTimes(1)
+    }, { timeout: 4000 })
+  })
+
+  it('does not reload page for previously completed update status', async () => {
+    vi.useRealTimers()
     workspaceApiMock.getUpdateNowStatus.mockResolvedValue({
       status: 'success',
       logs: ['更新完成'],
@@ -118,8 +148,18 @@ describe('SystemSettings', () => {
 
     render(<SystemSettings />)
 
-    await waitFor(() => {
-      expect(window.location.reload).toHaveBeenCalledTimes(1)
-    }, { timeout: 2000 })
+    await screen.findByText('Update Now 已完成')
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 2200)
+    })
+
+    expect(window.location.reload).not.toHaveBeenCalled()
+  })
+
+  it('renders system settings inside its own scroll container', async () => {
+    render(<SystemSettings />)
+
+    const container = await screen.findByTestId('system-settings-scroll')
+    expect(container).toHaveStyle({ overflowY: 'auto', height: '100%' })
   })
 })

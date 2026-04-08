@@ -79,4 +79,46 @@ describe('WorkspaceRunView', () => {
     expect(screen.getByPlaceholderText('输入消息...（Ctrl+Enter 发送）')).toBeInTheDocument()
     expect(workspaceApiMock.getOrchestration).not.toHaveBeenCalled()
   })
+
+  it('keeps long summary, memory and message content wrappable', async () => {
+    const longToken = 'need_clarification:true:' + 'AuthorizationXApiKey'.repeat(20)
+    workspaceApiMock.listSessions.mockResolvedValue([
+      {
+        id: 'session-1',
+        title: '历史会话',
+        updated_at: '2026-04-07T10:00:00Z',
+        message_count: 2,
+        summary: longToken,
+        memory_items: [{ id: 'memory-1', category: 'artifact', content: longToken }],
+        messages: [],
+      },
+    ])
+    workspaceApiMock.getSession.mockResolvedValue({
+      id: 'session-1',
+      title: '历史会话',
+      updated_at: '2026-04-07T10:00:00Z',
+      message_count: 2,
+      summary: longToken,
+      memory_items: [{ id: 'memory-1', category: 'artifact', content: longToken }],
+      messages: [
+        { id: 'msg-1', role: 'error', kind: 'error', content: longToken, created_at: '2026-04-07T10:01:00Z' },
+      ],
+    })
+
+    render(<WorkspaceRunView workspace={{ id: 'ws-1', llm_profiles: [] }} />)
+
+    const summary = await screen.findByTestId('session-summary')
+    const memoryItems = await screen.findAllByTestId('memory-item-memory-1')
+    const messages = await screen.findAllByTestId('message-content-0')
+    const memory = memoryItems.at(-1)
+    const message = messages.at(-1)
+
+    expect(summary.getAttribute('style')).toContain('overflow-wrap: anywhere')
+    expect(summary.getAttribute('style')).toContain('word-break: break-word')
+    expect(memory?.getAttribute('style')).toContain('overflow-wrap: anywhere')
+    expect(memory?.getAttribute('style')).toContain('max-width: 100%')
+    expect(message?.getAttribute('style')).toContain('overflow-wrap: anywhere')
+    expect(message?.getAttribute('style')).toContain('word-break: break-word')
+    expect(message?.getAttribute('style')).toContain('min-width: 0')
+  })
 })

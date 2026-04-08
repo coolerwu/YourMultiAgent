@@ -29,15 +29,21 @@ const PRESET_MODELS = {
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
 }
+const DEFAULT_CODEX_MODEL = 'gpt-5.4'
 
 function emptyAgent(defaults, role) {
+  const isChat = defaults?.kind === 'chat'
   return {
     id: `${role}_${Date.now()}`,
-    name: role === 'coordinator' ? '主控智能体' : '新 Worker',
+    name: role === 'coordinator' ? (isChat ? '单聊助手' : '主控智能体') : '新 Worker',
     provider: defaults?.default_provider ?? 'anthropic',
     model: defaults?.default_model ?? 'claude-sonnet-4-6',
     system_prompt: role === 'coordinator'
-      ? '你是当前 Workspace 的主控智能体，负责统筹整个任务执行流程。先理解用户目标，再判断需要哪些 Worker 参与。将任务拆成清晰、可执行的子任务，并为每个 Worker 指定目标、输入、输出和完成标准。共享交接物统一写入当前 Workspace 的 shared/ 目录，例如 workspace/<workspace_name>/shared/；不要把 Worker 私有过程文件当成默认交接物。避免角色越权，例如产品类 Worker 不直接产出研发最终实现。最后汇总关键结果、交付物路径和最终结论。'
+      ? (
+        isChat
+          ? '你是当前单聊目录中的长期助手。需要结合该目录下的历史会话摘要、结构化记忆和当前用户消息，连续地完成对话。如果需要产出文件或中间结果，统一写入当前目录或其子目录，并明确告知路径。不要虚构已执行的操作；工具不足时直接说明。'
+          : '你是当前 Workspace 的主控智能体，负责统筹整个任务执行流程。先理解用户目标，再判断需要哪些 Worker 参与。将任务拆成清晰、可执行的子任务，并为每个 Worker 指定目标、输入、输出和完成标准。共享交接物统一写入当前 Workspace 的 shared/ 目录，例如 workspace/<workspace_name>/shared/；不要把 Worker 私有过程文件当成默认交接物。避免角色越权，例如产品类 Worker 不直接产出研发最终实现。最后汇总关键结果、交付物路径和最终结论。'
+      )
       : '你是当前 Worker，请只完成分配给你的子任务。需要交接给其他角色的共享产物，统一写入当前 Workspace 的 shared/ 目录，例如 workspace/<workspace_name>/shared/；你的私有过程文件保留在自己的工作目录中。不要越权完成其他角色的最终职责。',
     temperature: 0.7,
     max_tokens: 4096,
@@ -46,7 +52,7 @@ function emptyAgent(defaults, role) {
     codex_connection_id: '',
     base_url: '',
     api_key: '',
-    work_subdir: role === 'coordinator' ? 'coordinator' : '',
+    work_subdir: role === 'coordinator' ? (isChat ? 'chat' : 'coordinator') : '',
     order: 0,
   }
 }
@@ -64,6 +70,7 @@ function normalizeWorkerOrder(items = []) {
 }
 
 export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
+  const isChat = workspace?.kind === 'chat'
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [capabilities, setCapabilities] = useState([])
@@ -113,16 +120,23 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
 
   const saveAgent = async () => {
     const values = await form.validateFields()
+    const baseAgent = editing.role === 'coordinator'
+      ? coordinator
+      : workers[editing.index] ?? emptyAgent(workspace, 'worker')
+    const nextAgent = {
+      ...baseAgent,
+      ...values,
+    }
     if (editing.role === 'coordinator') {
-      setCoordinator(values)
+      setCoordinator(nextAgent)
     } else if (editing.index >= 0) {
       setWorkers((prev) => normalizeWorkerOrder(prev.map((item, index) => (
-        index === editing.index ? { ...item, ...values, order: item.order } : item
+        index === editing.index ? { ...nextAgent, order: item.order } : item
       ))))
     } else {
       setWorkers((prev) => normalizeWorkerOrder([
         ...prev,
-        { ...values, id: values.id || `worker_${Date.now()}`, order: prev.length + 1 },
+        { ...nextAgent, id: nextAgent.id || `worker_${Date.now()}`, order: prev.length + 1 },
       ]))
     }
     setEditing({ open: false, role: 'worker', index: -1 })
@@ -247,68 +261,72 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card
           loading={loading}
-          title="主控智能体"
+          title={isChat ? '单聊助手' : '主控智能体'}
           extra={<Button onClick={() => openEditor('coordinator')}>编辑</Button>}
         >
           <Space direction="vertical" size={6} style={{ width: '100%' }}>
             <Text strong>{coordinator.name}</Text>
             <Text type="secondary">{coordinator.model}</Text>
-            <Text type="secondary">{coordinator.work_subdir || 'coordinator'}</Text>
+            <Text type="secondary">{coordinator.work_subdir || (isChat ? 'chat' : 'coordinator')}</Text>
             <Text style={{ whiteSpace: 'pre-wrap' }}>{coordinator.system_prompt}</Text>
           </Space>
         </Card>
 
-        <Card
-          loading={loading}
-          title="Worker 角色"
-          extra={(
-            <Space>
-              <Button onClick={openWorkerGenerator}>AI 生成</Button>
-              <Button icon={<PlusOutlined />} onClick={() => openEditor('worker')}>新增 Worker</Button>
-            </Space>
-          )}
-        >
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {workers.length === 0 && <Text type="secondary">当前还没有 Worker</Text>}
-            {workers.map((worker, index) => (
-              <Card
-                key={worker.id}
-                size="small"
-                title={`#${worker.order || index + 1} ${worker.name}`}
-                extra={(
-                  <Space>
-                    <Button size="small" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => moveWorker(index, -1)} />
-                    <Button size="small" icon={<ArrowDownOutlined />} disabled={index === workers.length - 1} onClick={() => moveWorker(index, 1)} />
-                    <Button size="small" onClick={() => openEditor('worker', index)}>编辑</Button>
-                    <Button
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => setWorkers((prev) => normalizeWorkerOrder(prev.filter((_, i) => i !== index)))}
-                    />
-                  </Space>
-                )}
-              >
-                <Space direction="vertical" size={4}>
-                  <Text type="secondary">{worker.model}</Text>
-                  <Text type="secondary">目录：{worker.work_subdir || worker.name}</Text>
-                  <div>
-                    {(worker.tools ?? []).map((tool) => <Tag key={tool}>{tool}</Tag>)}
-                  </div>
+        {!isChat ? (
+          <>
+            <Card
+              loading={loading}
+              title="Worker 角色"
+              extra={(
+                <Space>
+                  <Button onClick={openWorkerGenerator}>AI 生成</Button>
+                  <Button icon={<PlusOutlined />} onClick={() => openEditor('worker')}>新增 Worker</Button>
                 </Space>
-              </Card>
-            ))}
-          </Space>
-        </Card>
+              )}
+            >
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {workers.length === 0 && <Text type="secondary">当前还没有 Worker</Text>}
+                {workers.map((worker, index) => (
+                  <Card
+                    key={worker.id}
+                    size="small"
+                    title={`#${worker.order || index + 1} ${worker.name}`}
+                    extra={(
+                      <Space>
+                        <Button size="small" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => moveWorker(index, -1)} />
+                        <Button size="small" icon={<ArrowDownOutlined />} disabled={index === workers.length - 1} onClick={() => moveWorker(index, 1)} />
+                        <Button size="small" onClick={() => openEditor('worker', index)}>编辑</Button>
+                        <Button
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => setWorkers((prev) => normalizeWorkerOrder(prev.filter((_, i) => i !== index)))}
+                        />
+                      </Space>
+                    )}
+                  >
+                    <Space direction="vertical" size={4}>
+                      <Text type="secondary">{worker.model}</Text>
+                      <Text type="secondary">目录：{worker.work_subdir || worker.name}</Text>
+                      <div>
+                        {(worker.tools ?? []).map((tool) => <Tag key={tool}>{tool}</Tag>)}
+                      </div>
+                    </Space>
+                  </Card>
+                ))}
+              </Space>
+            </Card>
 
-        <Card size="small" title="共享约定">
-          <Space direction="vertical" size={4}>
-            <Text>主控智能体负责拆解任务，并把交接规则明确给 Worker。</Text>
-            <Text>共享交接物统一写入当前 Workspace 的 `shared/` 目录，例如 `workspace/&lt;workspace_name&gt;/shared/`。</Text>
-            <Text>Worker 私有工作内容写入各自 `work_subdir/` 根目录。</Text>
-            <Text>不要把 Worker 私有过程文件当成默认交接物。</Text>
-          </Space>
-        </Card>
+            <Card size="small" title="共享约定">
+              <Space direction="vertical" size={4}>
+                <Text>主控智能体负责拆解任务，并把交接规则明确给 Worker。</Text>
+                <Text>共享交接物统一写入当前 Workspace 的 `shared/` 目录，例如 `workspace/&lt;workspace_name&gt;/shared/`。</Text>
+                <Text>Worker 私有工作内容写入各自 `work_subdir/` 根目录。</Text>
+                <Text>不要把 Worker 私有过程文件当成默认交接物。</Text>
+              </Space>
+            </Card>
+          </>
+        ) : null}
 
         <div>
           <Button type="primary" loading={saving} onClick={persist}>保存编排配置</Button>
@@ -337,7 +355,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
       </Modal>
 
       <Modal
-        title={editing.role === 'coordinator' ? '编辑主控智能体' : '编辑 Worker'}
+        title={editing.role === 'coordinator' ? (isChat ? '编辑单聊助手' : '编辑主控智能体') : '编辑 Worker'}
         open={editing.open}
         onOk={saveAgent}
         onCancel={() => setEditing({ open: false, role: 'worker', index: -1 })}
@@ -366,7 +384,12 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
               allowClear
               placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
               onChange={(value) => {
-                if (value) form.setFieldValue('llm_profile_id', '')
+                if (value) {
+                  form.setFieldsValue({
+                    llm_profile_id: '',
+                    model: DEFAULT_CODEX_MODEL,
+                  })
+                }
               }}
             >
               {codexConnections.map((connection) => (
@@ -384,7 +407,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
               if (getFieldValue('codex_connection_id')) {
                 return (
                   <Form.Item name="model" label="Codex 模型" rules={[{ required: true }]}>
-                    <Input placeholder="例如：gpt-5" />
+                    <Input placeholder={DEFAULT_CODEX_MODEL} />
                   </Form.Item>
                 )
               }

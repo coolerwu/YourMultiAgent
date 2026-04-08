@@ -502,7 +502,7 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
 
   if (embedded) {
     return (
-      <div style={{ padding: 20, background: '#fff', minHeight: '100vh' }}>
+      <div style={{ height: '100%', overflowY: 'auto', padding: 20, background: '#fff' }}>
         <div style={{ maxWidth: 960 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>

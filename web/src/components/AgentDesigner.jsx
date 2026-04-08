@@ -41,6 +41,7 @@ const PRESET_MODELS = {
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
 }
+const DEFAULT_CODEX_MODEL = 'gpt-5.4'
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
   const modelLabel = data.codex_connection_name || data.llm_profile_name || data.model
@@ -258,6 +259,12 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
   // 保存节点编辑
   const saveNode = () => {
     nodeForm.validateFields().then(vals => {
+      const currentNode = nodes.find(n => n.id === nodeModal.nodeId)
+      const currentData = currentNode?.data ?? {}
+      const nextData = {
+        ...currentData,
+        ...vals,
+      }
       const profile = llmProfiles.find(item => item.id === vals.llm_profile_id)
       const codexConnection = codexConnections.find(item => item.id === vals.codex_connection_id)
       setNodes(ns => ns.map(n =>
@@ -265,8 +272,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
           ? {
             ...n,
             data: {
-              ...n.data,
-              ...vals,
+              ...nextData,
               llm_profile_name: profile?.name ?? '',
               codex_connection_name: codexConnection?.name ?? '',
             },
@@ -515,7 +521,12 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
               allowClear
               placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
               onChange={(value) => {
-                if (value) nodeForm.setFieldValue('llm_profile_id', '')
+                if (value) {
+                  nodeForm.setFieldsValue({
+                    llm_profile_id: '',
+                    model: DEFAULT_CODEX_MODEL,
+                  })
+                }
               }}
             >
               {codexConnections.map(connection => (
@@ -534,7 +545,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
               if (getFieldValue('codex_connection_id')) {
                 return (
                   <Form.Item name="model" label="Codex 模型" rules={[{ required: true }]}>
-                    <Input placeholder="例如：gpt-5" />
+                    <Input placeholder={DEFAULT_CODEX_MODEL} />
                   </Form.Item>
                 )
               }

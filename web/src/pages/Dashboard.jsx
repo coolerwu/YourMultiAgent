@@ -41,6 +41,47 @@ function ModalFallback() {
   return null
 }
 
+function buildTabItems(workspace, orchestrationVersion, onOrchestrationSaved) {
+  const isChat = workspace?.kind === 'chat'
+  return [
+    {
+      key: 'designer',
+      label: '配置',
+      children: (
+        <Suspense fallback={<TabFallback />}>
+          <div style={{ height: 'calc(100vh - 108px)', overflowY: 'auto' }}>
+            <WorkspaceOrchestrationEditor
+              key={`${workspace?.id ?? 'none'}-${orchestrationVersion}`}
+              workspace={workspace}
+              onSaved={onOrchestrationSaved}
+            />
+          </div>
+        </Suspense>
+      ),
+    },
+    {
+      key: 'runner',
+      label: '运行',
+      children: (
+        <Suspense fallback={<TabFallback />}>
+          <div style={{ height: 'calc(100vh - 108px)', display: 'flex', flexDirection: 'column' }}>
+            <WorkspaceRunView key={`${workspace?.id ?? 'none'}-${orchestrationVersion}-run`} workspace={workspace} />
+          </div>
+        </Suspense>
+      ),
+    },
+    ...(!isChat ? [{
+      key: 'worker',
+      label: 'Worker',
+      children: (
+        <Suspense fallback={<TabFallback />}>
+          <div style={{ height: 'calc(100vh - 108px)', overflowY: 'auto', padding: 16 }}><WorkerStatus /></div>
+        </Suspense>
+      ),
+    }] : []),
+  ]
+}
+
 function WorkspaceCard({ workspace, active, deleting, onSelect, onEditWorkspace, onDeleteWorkspace }) {
   const isChat = workspace.kind === 'chat'
   return (
@@ -165,10 +206,14 @@ function NavCard({ icon, title, subtitle, active, onClick }) {
   )
 }
 
+function pickDefaultWorkspace(items) {
+  return items.find((item) => item.kind === 'chat') ?? items[0] ?? null
+}
+
 export default function Dashboard() {
   const [workspaces, setWorkspaces] = useState([])
   const [activeWorkspace, setActiveWorkspace] = useState(null)
-  const [activeTab, setActiveTab] = useState('designer')
+  const [activeTab, setActiveTab] = useState('runner')
   const [activePanel, setActivePanel] = useState('workspace')
   const [wsModalOpen, setWsModalOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState(null)
@@ -183,10 +228,11 @@ export default function Dashboard() {
       const refreshed = activeWorkspace
         ? result.find((item) => item.id === activeWorkspace.id) ?? null
         : null
-      const nextActive = refreshed ?? result[0] ?? null
+      const nextActive = refreshed ?? pickDefaultWorkspace(result)
       setActiveWorkspace(nextActive)
       if (nextActive && !preservePanel) {
         setActivePanel(nextActive.kind === 'chat' ? 'chat' : 'workspace')
+        setActiveTab('runner')
       }
     } catch (e) {
       message.error(e.message)
@@ -201,6 +247,7 @@ export default function Dashboard() {
     loadWorkspaces()
     setActiveWorkspace(workspace)
     setActivePanel(workspace.kind === 'chat' ? 'chat' : 'workspace')
+    setActiveTab('runner')
   }
 
   const handleWorkspaceDelete = async (workspace) => {
@@ -216,48 +263,27 @@ export default function Dashboard() {
     }
   }
 
-  const tabItems = useMemo(() => ([
-    {
-      key: 'designer',
-      label: '配置',
-      children: (
-        <Suspense fallback={<TabFallback />}>
-          <WorkspaceOrchestrationEditor
-            key={`${activeWorkspace?.id ?? 'none'}-${orchestrationVersion}`}
-            workspace={activeWorkspace}
-            onSaved={() => setOrchestrationVersion((prev) => prev + 1)}
-          />
-        </Suspense>
-      ),
-    },
-    {
-      key: 'runner',
-      label: '运行',
-      children: (
-        <Suspense fallback={<TabFallback />}>
-          <div style={{ height: 'calc(100vh - 108px)', display: 'flex', flexDirection: 'column' }}>
-            <WorkspaceRunView key={`${activeWorkspace?.id ?? 'none'}-${orchestrationVersion}-run`} workspace={activeWorkspace} />
-          </div>
-        </Suspense>
-      ),
-    },
-    {
-      key: 'worker',
-      label: 'Worker',
-      children: (
-        <Suspense fallback={<TabFallback />}>
-          <div style={{ padding: 16 }}><WorkerStatus /></div>
-        </Suspense>
-      ),
-    },
-  ]), [activeWorkspace, orchestrationVersion])
+  const tabItems = useMemo(
+    () => buildTabItems(activeWorkspace, orchestrationVersion, () => setOrchestrationVersion((prev) => prev + 1)),
+    [activeWorkspace, orchestrationVersion],
+  )
 
   const chatSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind === 'chat'), [workspaces])
   const orchestrationSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind !== 'chat'), [workspaces])
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f8fafc' }}>
-      <Sider width={320} theme="light" style={{ borderRight: '1px solid #eaecf0', padding: 16, background: '#fcfcfd' }}>
+    <Layout style={{ height: '100vh', background: '#f8fafc', overflow: 'hidden' }}>
+      <Sider
+        width={320}
+        theme="light"
+        style={{
+          height: '100vh',
+          overflowY: 'auto',
+          borderRight: '1px solid #eaecf0',
+          padding: 16,
+          background: '#fcfcfd',
+        }}
+      >
         <div
           style={{
             display: 'flex',
@@ -311,6 +337,7 @@ export default function Dashboard() {
               onSelect={(ws) => {
                 setActiveWorkspace(ws)
                 setActivePanel('chat')
+                setActiveTab('runner')
               }}
               onEditWorkspace={(ws) => {
                 setEditingWorkspace(ws)
@@ -336,6 +363,7 @@ export default function Dashboard() {
               onSelect={(ws) => {
                 setActiveWorkspace(ws)
                 setActivePanel('workspace')
+                setActiveTab('runner')
               }}
               onEditWorkspace={(ws) => {
                 setEditingWorkspace(ws)
@@ -372,7 +400,7 @@ export default function Dashboard() {
         />
       </Sider>
 
-      <Content>
+      <Content style={{ height: '100vh', overflow: 'hidden', minWidth: 0 }}>
         {activePanel === 'providers' ? (
           <Suspense fallback={<TabFallback />}>
             <ProviderManager embedded onSaved={() => loadWorkspaces({ preservePanel: true })} />
@@ -382,21 +410,23 @@ export default function Dashboard() {
             <SystemSettings />
           </Suspense>
         ) : activePanel === 'chat' && activeWorkspace ? (
-          <Suspense fallback={<TabFallback />}>
-            <div style={{ height: 'calc(100vh - 36px)', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-              <WorkspaceRunView key={`${activeWorkspace?.id ?? 'none'}-chat`} workspace={activeWorkspace} />
-            </div>
-          </Suspense>
+          <Tabs
+            activeKey={activeTab}
+            destroyInactiveTabPane
+            items={tabItems}
+            onChange={setActiveTab}
+            style={{ height: '100vh', padding: '0 18px', background: '#fff' }}
+          />
         ) : activeWorkspace ? (
           <Tabs
             activeKey={activeTab}
             destroyInactiveTabPane
             items={tabItems}
             onChange={setActiveTab}
-            style={{ padding: '0 18px', background: '#fff', minHeight: '100vh' }}
+            style={{ height: '100vh', padding: '0 18px', background: '#fff' }}
           />
         ) : (
-          <div style={{ height: '100%', background: '#fff' }} />
+          <div style={{ height: '100vh', background: '#fff' }} />
         )}
       </Content>
 

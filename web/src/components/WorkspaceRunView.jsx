@@ -6,6 +6,12 @@ import { workspaceApi } from '../utils/workspaceApi'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
+const LONG_TEXT_STYLE = {
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+  minWidth: 0,
+}
 
 const IDLE_ANIM = { v: '5.9.0', fr: 24, ip: 0, op: 48, w: 120, h: 120, assets: [], layers: [{ ty: 4, nm: 'circle', ind: 1, ip: 0, op: 48, st: 0, ks: { o: { a: 0, k: 75 }, r: { a: 0, k: 0 }, p: { a: 0, k: [60, 60, 0] }, a: { a: 0, k: [0, 0, 0] }, s: { a: 0, k: [100, 100, 100] } }, shapes: [{ ty: 'el', p: { a: 0, k: [0, 0] }, s: { a: 0, k: [70, 70] } }, { ty: 'fl', c: { a: 0, k: [0.78, 0.87, 0.97, 1] }, o: { a: 0, k: 100 } }] }] }
 const WORKING_ANIM = { v: '5.9.0', fr: 24, ip: 0, op: 48, w: 120, h: 120, assets: [], layers: [{ ty: 4, nm: 'circle', ind: 1, ip: 0, op: 48, st: 0, ks: { o: { a: 0, k: 100 }, r: { a: 1, k: [{ t: 0, s: [0] }, { t: 48, s: [360] }] }, p: { a: 0, k: [60, 60, 0] }, a: { a: 0, k: [0, 0, 0] }, s: { a: 0, k: [100, 100, 100] } }, shapes: [{ ty: 'el', p: { a: 0, k: [0, 0] }, s: { a: 0, k: [70, 70] } }, { ty: 'st', c: { a: 0, k: [0.09, 0.47, 1, 1] }, o: { a: 0, k: 100 }, w: { a: 0, k: 8 }, lc: 2, lj: 1 }] }] }
@@ -386,14 +392,25 @@ export default function WorkspaceRunView({ workspace }) {
         <div style={{ padding: '10px 16px', background: '#fcfcfc', borderBottom: '1px solid #f0f0f0' }}>
           {sessionMeta.summary
             ? (
-              <Paragraph style={{ marginBottom: 8 }} ellipsis={{ rows: 2, expandable: true, symbol: '展开摘要' }}>
+              <Paragraph
+                data-testid="session-summary"
+                style={{ marginBottom: 8, ...LONG_TEXT_STYLE }}
+                ellipsis={{ rows: 2, expandable: true, symbol: '展开摘要' }}
+              >
                 <Text strong>Compact 摘要：</Text> {sessionMeta.summary}
               </Paragraph>
             )
             : <Text type="secondary">当前会话尚未触发 compact。</Text>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {sessionMeta.memory_items?.map((item) => (
-              <Tag key={item.id} color="processing">{item.category}: {item.content}</Tag>
+              <Tag
+                key={item.id}
+                data-testid={`memory-item-${item.id}`}
+                color="processing"
+                style={{ maxWidth: '100%', height: 'auto', ...LONG_TEXT_STYLE }}
+              >
+                {item.category}: {item.content}
+              </Tag>
             ))}
           </div>
         </div>
@@ -403,11 +420,11 @@ export default function WorkspaceRunView({ workspace }) {
           </div>
           {messages.length === 0 && <Text type="secondary">{isChat ? '输入消息后，当前单聊目录会继续沿用已有记忆和历史上下文。' : '输入任务，主控智能体会拆解并分派给各 Worker。'}</Text>}
           {messages.map((msg, index) => (
-            <div key={`${msg.created_at || index}-${index}`} style={{ marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <div key={`${msg.created_at || index}-${index}`} style={{ marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%' }}>
               <Tag color={msg.role === 'user' ? 'blue' : msg.role === 'error' ? 'red' : msg.role === 'assistant' ? 'green' : 'default'}>
                 {msg.role === 'user' ? '用户' : msg.role === 'error' ? '错误' : resolveActorName(msg)}
               </Tag>
-              <Text style={{ whiteSpace: 'pre-wrap', flex: 1 }}>{msg.content}</Text>
+              <Text data-testid={`message-content-${index}`} style={{ flex: 1, ...LONG_TEXT_STYLE }}>{msg.content}</Text>
               <Button size="small" type="text" icon={<CopyOutlined />} onClick={() => copyMessage(msg)} />
             </div>
           ))}
