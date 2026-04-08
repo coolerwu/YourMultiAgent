@@ -22,6 +22,7 @@ import { workspaceApi } from '../utils/workspaceApi'
 const { Sider, Content } = Layout
 const { Text } = Typography
 const ProviderManager = lazy(() => import('../components/ProviderManager'))
+const SystemSettings = lazy(() => import('../components/SystemSettings'))
 const WorkerStatus = lazy(() => import('../components/WorkerStatus'))
 const WorkspaceManager = lazy(() => import('../components/WorkspaceManager'))
 const WorkspaceOrchestrationEditor = lazy(() => import('../components/WorkspaceOrchestrationEditor'))
@@ -172,7 +173,7 @@ export default function Dashboard() {
   const [orchestrationVersion, setOrchestrationVersion] = useState(0)
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState('')
 
-  const loadWorkspaces = async () => {
+  const loadWorkspaces = async ({ preservePanel = false } = {}) => {
     try {
       const result = await workspaceApi.list()
       setWorkspaces(result)
@@ -181,7 +182,7 @@ export default function Dashboard() {
         : null
       const nextActive = refreshed ?? result[0] ?? null
       setActiveWorkspace(nextActive)
-      if (nextActive) {
+      if (nextActive && !preservePanel) {
         setActivePanel('workspace')
       }
     } catch (e) {
@@ -321,12 +322,28 @@ export default function Dashboard() {
           active={activePanel === 'providers'}
           onClick={() => setActivePanel('providers')}
         />
+
+        <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
+          <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>SYSTEM</Text>
+        </div>
+
+        <NavCard
+          icon={<SettingOutlined style={{ fontSize: 18 }} />}
+          title="系统设置"
+          subtitle="执行 Update Now 和查看系统级状态"
+          active={activePanel === 'system'}
+          onClick={() => setActivePanel('system')}
+        />
       </Sider>
 
       <Content>
         {activePanel === 'providers' ? (
           <Suspense fallback={<TabFallback />}>
-            <ProviderManager embedded onSaved={() => loadWorkspaces()} />
+            <ProviderManager embedded onSaved={() => loadWorkspaces({ preservePanel: true })} />
+          </Suspense>
+        ) : activePanel === 'system' ? (
+          <Suspense fallback={<TabFallback />}>
+            <SystemSettings />
           </Suspense>
         ) : activeWorkspace ? (
           <Tabs

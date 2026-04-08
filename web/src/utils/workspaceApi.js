@@ -19,6 +19,12 @@ export const workspaceApi = {
   updateOrchestration: (id, data) => api.put(`/api/workspaces/${id}/orchestration`, data),
   getProviderSettings: () => api.get('/api/settings/providers'),
   updateProviderSettings: (data) => api.put('/api/settings/providers', data),
+  getCodexRuntimeSummary: () => api.get('/api/settings/codex/runtime'),
+  startUpdateNow: () => api.post('/api/admin/update-now', {}),
+  getUpdateNowStatus: () => api.get('/api/admin/update-now/current'),
+  checkCodexConnection: (id) => api.post(`/api/settings/codex-connections/${id}/check`, {}),
+  installCodexConnection: (id) => api.post(`/api/settings/codex-connections/${id}/install`, {}),
+  loginCodexConnection: (id) => api.post(`/api/settings/codex-connections/${id}/login`, {}),
   run: (id, payload, onChunk, onDone, onError) =>
     wsRun(`/ws/workspaces/${id}/run`, payload, onChunk, onDone, onError),
 }

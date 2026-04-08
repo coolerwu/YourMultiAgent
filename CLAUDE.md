@@ -32,7 +32,7 @@ cd web && npx vitest run
 
 | 层 | 技术 |
 |----|------|
-| 后端 | Python 3.12, FastAPI, LangGraph |
+| 后端 | Python 3.12, FastAPI |
 | 前端 | React 19, Vite, Ant Design |
 | LLM | Anthropic Claude / OpenAI（页面可配置） |
 | 持久化 | 内存（初期），后续按需接 SQLite |

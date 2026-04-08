@@ -493,7 +493,13 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             label="通用 LLM 配置"
             extra="引用当前 Workspace 预定义的接口和 Token；留空则使用节点自定义配置"
           >
-            <Select allowClear placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}>
+            <Select
+              allowClear
+              placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
+              onChange={(value) => {
+                if (value) nodeForm.setFieldValue('codex_connection_id', '')
+              }}
+            >
               {llmProfiles.map(profile => (
                 <Option key={profile.id} value={profile.id}>{profile.name}</Option>
               ))}
@@ -505,7 +511,13 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             label="Codex 登录连接"
             extra="引用全局共享的 Codex 登录连接；当前仅完成配置建模，服务端运行时尚未接入真实登录通道"
           >
-            <Select allowClear placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}>
+            <Select
+              allowClear
+              placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
+              onChange={(value) => {
+                if (value) nodeForm.setFieldValue('llm_profile_id', '')
+              }}
+            >
               {codexConnections.map(connection => (
                 <Option key={connection.id} value={connection.id}>{connection.name}</Option>
               ))}
@@ -518,7 +530,14 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             || p.provider !== c.provider
           )}>
             {({ getFieldValue }) => {
-              if (getFieldValue('llm_profile_id') || getFieldValue('codex_connection_id')) return null
+              if (getFieldValue('llm_profile_id')) return null
+              if (getFieldValue('codex_connection_id')) {
+                return (
+                  <Form.Item name="model" label="Codex 模型" rules={[{ required: true }]}>
+                    <Input placeholder="例如：gpt-5" />
+                  </Form.Item>
+                )
+              }
               const provider = getFieldValue('provider')
               return (
                 <>

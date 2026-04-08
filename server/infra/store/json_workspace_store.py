@@ -195,6 +195,13 @@ def _global_settings_from_legacy(payload: dict) -> GlobalSettingsEntity:
                 status=item.get("status", "disconnected"),
                 credential_ref=item.get("credential_ref", ""),
                 last_verified_at=item.get("last_verified_at", ""),
+                install_status=item.get("install_status", "unknown"),
+                install_path=item.get("install_path", ""),
+                login_status=item.get("login_status", "unknown"),
+                last_checked_at=item.get("last_checked_at", ""),
+                last_error=item.get("last_error", ""),
+                cli_version=item.get("cli_version", ""),
+                os_family=item.get("os_family", ""),
             )
             for item in payload.get("codex_connections", [])
             if isinstance(item, dict) and item.get("name")

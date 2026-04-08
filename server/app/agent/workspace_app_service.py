@@ -43,6 +43,13 @@ class CodexConnectionCmd:
     status: str = "disconnected"
     credential_ref: str = ""
     last_verified_at: str = ""
+    install_status: str = "unknown"
+    install_path: str = ""
+    login_status: str = "unknown"
+    last_checked_at: str = ""
+    last_error: str = ""
+    cli_version: str = ""
+    os_family: str = ""
 
 
 @dataclass
@@ -230,6 +237,13 @@ def _to_codex_connection_entity(cmd: CodexConnectionCmd) -> CodexConnectionEntit
         status=cmd.status,
         credential_ref=cmd.credential_ref,
         last_verified_at=cmd.last_verified_at,
+        install_status=cmd.install_status,
+        install_path=cmd.install_path,
+        login_status=cmd.login_status,
+        last_checked_at=cmd.last_checked_at,
+        last_error=cmd.last_error,
+        cli_version=cmd.cli_version,
+        os_family=cmd.os_family,
     )
 
 

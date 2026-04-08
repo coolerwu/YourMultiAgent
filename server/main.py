@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from server.adapter.admin_controller import router as admin_router
 from server.adapter.agent_controller import router as agent_router
 from server.adapter.agent_ws import router as agent_ws_router
 from server.adapter.settings_controller import router as settings_router
@@ -40,6 +41,7 @@ app.add_middleware(
 # ── API 路由 ──────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(agent_ws_router)    # WebSocket: /ws/workspaces/{id}/run
+app.include_router(admin_router)
 app.include_router(settings_router)
 app.include_router(worker_router)
 app.include_router(workspace_router)

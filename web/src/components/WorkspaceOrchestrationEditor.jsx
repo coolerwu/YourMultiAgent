@@ -349,14 +349,26 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
             <Input />
           </Form.Item>
           <Form.Item name="llm_profile_id" label="通用 LLM 配置">
-            <Select allowClear placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}>
+            <Select
+              allowClear
+              placeholder={llmProfiles.length ? '选择通用配置' : '当前 Workspace 暂无通用配置'}
+              onChange={(value) => {
+                if (value) form.setFieldValue('codex_connection_id', '')
+              }}
+            >
               {llmProfiles.map((profile) => (
                 <Option key={profile.id} value={profile.id}>{profile.name}</Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item name="codex_connection_id" label="Codex 登录连接">
-            <Select allowClear placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}>
+            <Select
+              allowClear
+              placeholder={codexConnections.length ? '选择 Codex 登录连接' : '当前 Workspace 暂无 Codex 登录连接'}
+              onChange={(value) => {
+                if (value) form.setFieldValue('llm_profile_id', '')
+              }}
+            >
               {codexConnections.map((connection) => (
                 <Option key={connection.id} value={connection.id}>{connection.name}</Option>
               ))}
@@ -368,7 +380,14 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
             || prev.provider !== cur.provider
           )}>
             {({ getFieldValue }) => {
-              if (getFieldValue('llm_profile_id') || getFieldValue('codex_connection_id')) return null
+              if (getFieldValue('llm_profile_id')) return null
+              if (getFieldValue('codex_connection_id')) {
+                return (
+                  <Form.Item name="model" label="Codex 模型" rules={[{ required: true }]}>
+                    <Input placeholder="例如：gpt-5" />
+                  </Form.Item>
+                )
+              }
               const provider = getFieldValue('provider')
               return (
                 <>

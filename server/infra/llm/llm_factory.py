@@ -8,6 +8,8 @@ API Key 优先用 agent 级配置，若节点引用 workspace LLM profile 则先
 
 from server.domain.agent.entity.agent_entity import AgentEntity, LLMProvider, WorkspaceEntity
 from server.domain.agent.gateway.llm_gateway import LLMGateway
+from server.infra.codex.codex_cli import detect_codex_path, detect_login_status
+from server.infra.llm.codex_cli_adapter import CodexCLIAdapter
 
 
 class LangChainLLMFactory(LLMGateway):
@@ -42,6 +44,19 @@ class LangChainLLMFactory(LLMGateway):
                 api_key=compat_api_key,
             )
 
+        elif provider == LLMProvider.OPENAI_CODEX:
+            codex_path = base_url or detect_codex_path()
+            if not codex_path:
+                raise ValueError(f"Agent '{agent.name}' 选择了 Codex，但当前宿主机未安装 codex CLI")
+            login_status, _ = detect_login_status(codex_path)
+            if login_status != "connected":
+                raise ValueError(f"Agent '{agent.name}' 选择了 Codex，但当前宿主机尚未完成 codex login")
+            return CodexCLIAdapter(
+                model=model,
+                codex_path=codex_path,
+                work_dir=workspace.work_dir if workspace else "",
+            )
+
         else:
             raise ValueError(f"不支持的 LLM provider: {provider}")
 
@@ -54,9 +69,11 @@ def _resolve_llm_config(
         connection = next((item for item in workspace.codex_connections if item.id == agent.codex_connection_id), None)
         if connection is None:
             raise ValueError(f"Agent '{agent.name}' 引用了不存在的 Codex 登录连接: {agent.codex_connection_id}")
-        raise ValueError(
-            f"Agent '{agent.name}' 选择了 Codex 登录连接 '{connection.name}'，"
-            "但当前服务端运行时尚未接入 ChatGPT Codex 登录通道。"
+        return (
+            LLMProvider.OPENAI_CODEX,
+            agent.model or "gpt-5",
+            connection.install_path,
+            "",
         )
 
     if workspace and agent.llm_profile_id:

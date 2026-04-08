@@ -115,6 +115,13 @@ class CodexConnectionEntity:
     status: str = "disconnected"
     credential_ref: str = ""
     last_verified_at: str = ""
+    install_status: str = "unknown"
+    install_path: str = ""
+    login_status: str = "unknown"
+    last_checked_at: str = ""
+    last_error: str = ""
+    cli_version: str = ""
+    os_family: str = ""
 
 
 @dataclass

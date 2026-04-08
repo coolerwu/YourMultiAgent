@@ -10,6 +10,7 @@ set -euo pipefail
 
 MODE="${1:-prod}"
 PORT="${2:-8080}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 REPO_URL="https://github.com/coolerwu/YourMultiAgent.git"
 ARCHIVE_URL="https://github.com/coolerwu/YourMultiAgent/archive/refs/heads/main.tar.gz"
@@ -17,6 +18,12 @@ SERVICE_NAME="yourmultiagent"
 DEPLOY_DIR="${HOME}/yourmultiagent"
 DATA_DIR_PROD="${HOME}/.yourmultiagent"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+RUNTIME_PACKAGES=(
+  "langgraph"
+  "setuptools"
+  "wheel"
+)
 
 
 require_cmd() {
@@ -32,6 +39,28 @@ resolve_python_bin() {
     printf '%s\n' "$(pwd)/.venv/bin/python"
   else
     printf '%s\n' "python3"
+  fi
+}
+
+
+ensure_runtime_env() {
+  local app_dir="$1"
+  local venv_python="$app_dir/.venv/bin/python"
+  local venv_pip="$app_dir/.venv/bin/pip"
+
+  if [ ! -d "$app_dir/.venv" ]; then
+    echo "▶  创建虚拟环境"
+    python3 -m venv "$app_dir/.venv"
+  fi
+
+  echo "▶  安装运行时依赖"
+  "$venv_pip" install --upgrade pip
+  "$venv_pip" install --no-cache-dir -e "$app_dir"
+  "$venv_pip" install --no-cache-dir "${RUNTIME_PACKAGES[@]}"
+
+  if [ ! -x "$venv_python" ]; then
+    echo "虚拟环境 Python 不存在：$venv_python"
+    exit 1
   fi
 }
 
@@ -68,8 +97,10 @@ ensure_deploy_repo() {
     git -C "$DEPLOY_DIR" pull --ff-only
   elif command -v git >/dev/null 2>&1; then
     if [ -n "$(find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
-      echo "部署目录已存在且不是 Git 仓库：$DEPLOY_DIR"
-      exit 1
+      local backup_dir="${DEPLOY_DIR}.bak-$(date +%Y%m%d-%H%M%S)"
+      echo "▶  备份非 Git 部署目录：$DEPLOY_DIR -> $backup_dir"
+      mv "$DEPLOY_DIR" "$backup_dir"
+      mkdir -p "$DEPLOY_DIR"
     fi
     rmdir "$DEPLOY_DIR" 2>/dev/null || true
     echo "▶  克隆仓库：$REPO_URL -> $DEPLOY_DIR"
@@ -79,6 +110,8 @@ ensure_deploy_repo() {
     require_cmd tar
     download_repo_archive
   fi
+
+  chmod +x "$DEPLOY_DIR/run.sh" 2>/dev/null || true
 }
 
 
@@ -108,22 +141,6 @@ download_repo_archive() {
 }
 
 
-install_runtime_deps() {
-  cd "$DEPLOY_DIR"
-  if [ ! -d ".venv" ]; then
-    echo "▶  创建虚拟环境"
-    python3 -m venv .venv
-  fi
-
-  echo "▶  安装运行时依赖"
-  .venv/bin/pip install --upgrade pip
-  .venv/bin/pip install --no-cache-dir \
-    fastapi "uvicorn[standard]" langgraph langchain-core \
-    langchain-anthropic langchain-openai httpx pydantic typer websockets \
-    setuptools wheel
-}
-
-
 write_service_file() {
   local tmp_file
   tmp_file="$(mktemp)"
@@ -137,7 +154,7 @@ After=network.target
 Type=simple
 User=$(id -un)
 WorkingDirectory=$DEPLOY_DIR
-ExecStart=$DEPLOY_DIR/run.sh serve-prod $PORT
+ExecStart=/bin/bash $DEPLOY_DIR/run.sh serve-prod $PORT
 Restart=always
 RestartSec=5
 
@@ -218,7 +235,7 @@ deploy_prod() {
   require_cmd python3
 
   ensure_deploy_repo
-  install_runtime_deps
+  ensure_runtime_env "$DEPLOY_DIR"
   ensure_systemd_service
   verify_service
 }
@@ -226,6 +243,8 @@ deploy_prod() {
 
 case "$MODE" in
   test)
+    ensure_runtime_env "$SCRIPT_DIR"
+    cd "$SCRIPT_DIR"
     run_uvicorn "$(pwd)/data" "true"
     ;;
   serve-prod)

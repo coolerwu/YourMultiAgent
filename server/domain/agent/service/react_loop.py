@@ -2,7 +2,7 @@
 domain/agent/service/react_loop.py
 
 单节点 ReAct 状态机，负责驱动 LLM 推理 + 工具调用循环。
-不依赖 LangGraph，直接 yield dict 事件供上层透传给客户端。
+直接 yield dict 事件供上层透传给客户端。
 
 状态机转换规则（next_event）：
   done=True               → DONE

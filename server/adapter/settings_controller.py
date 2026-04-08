@@ -5,11 +5,12 @@ adapter/settings_controller.py
 路由前缀 /api/settings
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from server.app.agent.workspace_app_service import WorkspaceAppService
-from server.container import get_workspace_service
+from server.app.settings.codex_runtime_service import CodexRuntimeService
+from server.container import get_codex_runtime_service, get_workspace_service
 from server.domain.agent.entity.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
@@ -33,6 +34,13 @@ class CodexConnectionReq(BaseModel):
     status: str = "disconnected"
     credential_ref: str = ""
     last_verified_at: str = ""
+    install_status: str = "unknown"
+    install_path: str = ""
+    login_status: str = "unknown"
+    last_checked_at: str = ""
+    last_error: str = ""
+    cli_version: str = ""
+    os_family: str = ""
 
 
 class GlobalSettingsReq(BaseModel):
@@ -45,8 +53,13 @@ class GlobalSettingsReq(BaseModel):
 
 
 @router.get("/providers")
-async def get_provider_settings(svc: WorkspaceAppService = Depends(get_workspace_service)):
-    return await svc.get_global_settings()
+async def get_provider_settings(
+    svc: WorkspaceAppService = Depends(get_workspace_service),
+    codex_runtime: CodexRuntimeService = Depends(get_codex_runtime_service),
+):
+    settings = await svc.get_global_settings()
+    settings.codex_connections = await codex_runtime.enrich_connections(settings.codex_connections)
+    return settings
 
 
 @router.put("/providers")
@@ -80,6 +93,13 @@ async def update_provider_settings(
                 status=item.status,
                 credential_ref=item.credential_ref,
                 last_verified_at=item.last_verified_at,
+                install_status=item.install_status,
+                install_path=item.install_path,
+                login_status=item.login_status,
+                last_checked_at=item.last_checked_at,
+                last_error=item.last_error,
+                cli_version=item.cli_version,
+                os_family=item.os_family,
             )
             for item in req.codex_connections
         ],
@@ -88,9 +108,12 @@ async def update_provider_settings(
 
 
 @router.get("/codex-connections")
-async def get_codex_connections(svc: WorkspaceAppService = Depends(get_workspace_service)):
+async def get_codex_connections(
+    svc: WorkspaceAppService = Depends(get_workspace_service),
+    codex_runtime: CodexRuntimeService = Depends(get_codex_runtime_service),
+):
     settings = await svc.get_global_settings()
-    return settings.codex_connections
+    return await codex_runtime.enrich_connections(settings.codex_connections)
 
 
 @router.put("/codex-connections")
@@ -109,8 +132,73 @@ async def update_codex_connections(
             status=item.status,
             credential_ref=item.credential_ref,
             last_verified_at=item.last_verified_at,
+            install_status=item.install_status,
+            install_path=item.install_path,
+            login_status=item.login_status,
+            last_checked_at=item.last_checked_at,
+            last_error=item.last_error,
+            cli_version=item.cli_version,
+            os_family=item.os_family,
         )
         for item in req
     ]
     saved = await svc.update_global_settings(settings)
     return saved.codex_connections
+
+
+@router.get("/codex/runtime")
+async def get_codex_runtime_summary(
+    svc: CodexRuntimeService = Depends(get_codex_runtime_service),
+):
+    return await svc.runtime_summary()
+
+
+@router.post("/codex-connections/{connection_id}/check")
+async def check_codex_connection(
+    connection_id: str,
+    svc: CodexRuntimeService = Depends(get_codex_runtime_service),
+):
+    try:
+        result = await svc.refresh_connection(connection_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "connection": result.connection,
+        "message": result.message,
+        "manual_command": result.manual_command,
+        "details": result.details,
+    }
+
+
+@router.post("/codex-connections/{connection_id}/install")
+async def install_codex_connection(
+    connection_id: str,
+    svc: CodexRuntimeService = Depends(get_codex_runtime_service),
+):
+    try:
+        result = await svc.install_connection(connection_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "connection": result.connection,
+        "message": result.message,
+        "manual_command": result.manual_command,
+        "details": result.details,
+    }
+
+
+@router.post("/codex-connections/{connection_id}/login")
+async def login_codex_connection(
+    connection_id: str,
+    svc: CodexRuntimeService = Depends(get_codex_runtime_service),
+):
+    try:
+        result = await svc.login_connection(connection_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "connection": result.connection,
+        "message": result.message,
+        "manual_command": result.manual_command,
+        "details": result.details,
+    }

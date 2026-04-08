@@ -5,11 +5,12 @@
  */
 
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
-import { Button, Card, Form, Input, Modal, Select, Space, Tabs, Tag, message } from 'antd'
+import { Alert, Button, Card, Form, Input, Modal, Select, Space, Tabs, Tag, Typography, message } from 'antd'
 import { useEffect, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
 
 const { Option } = Select
+const { Text } = Typography
 
 const PROVIDERS = [
   { value: 'anthropic', label: 'Anthropic (Claude)' },
@@ -31,32 +32,44 @@ function CodexStatusTag({ status }) {
 export default function ProviderManager({ open, onClose, onSaved, embedded = false }) {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  const [runtimeSummary, setRuntimeSummary] = useState(null)
+  const [runningActionId, setRunningActionId] = useState('')
+  const [actionHints, setActionHints] = useState({})
 
   useEffect(() => {
     if (!embedded && !open) return
-    workspaceApi.getProviderSettings()
-      .then((settings) => {
-        form.setFieldsValue({
-          default_provider: settings.default_provider ?? 'anthropic',
-          default_model: settings.default_model ?? 'claude-sonnet-4-6',
-          default_base_url: settings.default_base_url ?? '',
-          default_api_key: settings.default_api_key ?? '',
-          llm_profiles: settings.llm_profiles ?? [],
-          codex_connections: settings.codex_connections ?? [],
-        })
-      })
-      .catch((e) => message.error(e.message))
-  }, [open, form])
+    loadSettings()
+  }, [open, embedded, form])
 
-  const handleOk = async () => {
+  const loadSettings = async () => {
+    try {
+      const [settings, runtime] = await Promise.all([
+        workspaceApi.getProviderSettings(),
+        workspaceApi.getCodexRuntimeSummary(),
+      ])
+      form.setFieldsValue({
+        default_provider: settings.default_provider ?? 'anthropic',
+        default_model: settings.default_model ?? 'claude-sonnet-4-6',
+        default_base_url: settings.default_base_url ?? '',
+        default_api_key: settings.default_api_key ?? '',
+        llm_profiles: settings.llm_profiles ?? [],
+        codex_connections: settings.codex_connections ?? [],
+      })
+      setRuntimeSummary(runtime)
+    } catch (e) {
+      message.error(e.message)
+    }
+  }
+
+  const buildPayload = async () => {
     let vals
     try {
       vals = await form.validateFields()
     } catch {
-      return
+      return null
     }
 
-    const payload = {
+    return {
       default_provider: vals.default_provider,
       default_model: vals.default_model,
       default_base_url: vals.default_base_url ?? '',
@@ -72,19 +85,91 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
         auth_mode: 'chatgpt_codex_login',
       })),
     }
+  }
+
+  const persistSettings = async ({ closeOnSuccess = false, successMessage = '' } = {}) => {
+    const payload = await buildPayload()
+    if (!payload) return null
 
     setSaving(true)
     try {
       const saved = await workspaceApi.updateProviderSettings(payload)
-      message.success('全局模型连接配置已更新')
+      if (successMessage) {
+        message.success(successMessage)
+      }
+      form.setFieldsValue({
+        default_provider: saved.default_provider ?? 'anthropic',
+        default_model: saved.default_model ?? 'claude-sonnet-4-6',
+        default_base_url: saved.default_base_url ?? '',
+        default_api_key: saved.default_api_key ?? '',
+        llm_profiles: saved.llm_profiles ?? [],
+        codex_connections: saved.codex_connections ?? [],
+      })
       onSaved?.(saved)
-      onClose?.()
+      if (closeOnSuccess) {
+        onClose?.()
+      }
+      return saved
     } catch (e) {
       message.error(e.message)
+      return null
     } finally {
       setSaving(false)
     }
   }
+
+  const handleOk = async () => {
+    await persistSettings({
+      closeOnSuccess: true,
+      successMessage: '全局模型连接配置已更新',
+    })
+  }
+
+  const runCodexAction = async (connectionId, action, fieldIndex) => {
+    const targetNamePath = ['codex_connections', fieldIndex, 'name']
+    try {
+      await form.validateFields([targetNamePath])
+    } catch {
+      return
+    }
+    const saved = await persistSettings()
+    if (!saved) return
+    const savedConnection = (saved.codex_connections ?? []).find((item) => item.id === connectionId)
+    const effectiveId = savedConnection?.id || connectionId
+    if (!effectiveId) return
+
+    setRunningActionId(`${action}:${effectiveId}`)
+    try {
+      const result = action === 'check'
+        ? await workspaceApi.checkCodexConnection(effectiveId)
+        : action === 'install'
+          ? await workspaceApi.installCodexConnection(effectiveId)
+          : await workspaceApi.loginCodexConnection(effectiveId)
+      setActionHints((prev) => ({
+        ...prev,
+        [effectiveId]: {
+          message: result.message,
+          manualCommand: result.manual_command ?? '',
+          details: result.details ?? '',
+        },
+      }))
+      message.success(result.message)
+      await loadSettings()
+      onSaved?.()
+    } catch (e) {
+      message.error(e.message)
+    } finally {
+      setRunningActionId('')
+    }
+  }
+
+  const codexConnectionHeader = runtimeSummary ? (
+    <Alert
+      type="info"
+      showIcon
+      message={`当前宿主机：${runtimeSummary.os_family || 'unknown'}；Node：${runtimeSummary.node_path ? '已安装' : '未检测到'}；npm：${runtimeSummary.npm_path ? '已安装' : '未检测到'}；Codex：${runtimeSummary.codex_path ? `已安装 (${runtimeSummary.codex_version || 'unknown'})` : '未安装'}`}
+    />
+  ) : null
 
   const content = (
     <Form form={form} layout="vertical" style={{ marginTop: embedded ? 0 : 16 }}>
@@ -266,11 +351,14 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
               </>
             ),
           },
-          {
-            key: 'codex',
-            label: 'Codex 登录',
-            children: (
-              <Form.List name="codex_connections">
+            {
+              key: 'codex',
+              label: 'Codex 登录',
+              children: (
+              <>
+                {codexConnectionHeader}
+                <div style={{ height: 12 }} />
+                <Form.List name="codex_connections">
                 {(fields, { add, remove }) => (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -283,7 +371,7 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
                       <Button
                         icon={<PlusOutlined />}
                         onClick={() => add({
-                          id: '',
+                          id: `codex_${Date.now()}`,
                           name: '',
                           provider: 'openai_codex',
                           auth_mode: 'chatgpt_codex_login',
@@ -297,70 +385,116 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
                       </Button>
                     </div>
 
-                    {fields.map((field) => (
-                      <Card
-                        key={field.key}
-                        size="small"
-                        style={{ marginBottom: 12 }}
-                        title={`Codex 连接 #${field.name + 1}`}
-                        extra={<Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />}
-                      >
-                        <Form.Item name={[field.name, 'id']} hidden>
-                          <Input />
-                        </Form.Item>
-
-                        <Form.Item
-                          name={[field.name, 'name']}
-                          label="连接名称"
-                          rules={[{ required: true, message: '请输入连接名称' }]}
+                    {fields.map((field) => {
+                      const connectionId = form.getFieldValue(['codex_connections', field.name, 'id'])
+                      return (
+                        <Card
+                          key={field.key}
+                          size="small"
+                          style={{ marginBottom: 12 }}
+                          title={`Codex 连接 #${field.name + 1}`}
+                          extra={<Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />}
                         >
-                          <Input placeholder="例如：个人 ChatGPT Codex / 团队 Codex 登录" />
-                        </Form.Item>
+                          <Form.Item name={[field.name, 'id']} hidden>
+                            <Input />
+                          </Form.Item>
 
-                        <Space size={12} style={{ width: '100%' }} align="start">
                           <Form.Item
-                            name={[field.name, 'account_label']}
-                            label="账号标识"
-                            style={{ flex: 1 }}
+                            name={[field.name, 'name']}
+                            label="连接名称"
+                            rules={[{ required: true, message: '请输入连接名称' }]}
                           >
-                            <Input placeholder="例如：you@example.com" />
+                            <Input placeholder="例如：个人 ChatGPT Codex / 团队 Codex 登录" />
                           </Form.Item>
-                          <Form.Item
-                            name={[field.name, 'status']}
-                            label="连接状态"
-                            style={{ width: 160 }}
-                          >
-                            <Select>
-                              <Option value="disconnected">未连接</Option>
-                              <Option value="connected">已连接</Option>
-                              <Option value="expired">已过期</Option>
-                            </Select>
-                          </Form.Item>
-                        </Space>
 
-                        <Space size={12} style={{ width: '100%' }} align="start">
-                          <Form.Item name={[field.name, 'credential_ref']} label="凭据引用" style={{ flex: 1 }}>
-                            <Input placeholder="例如：~/.codex/auth.json" />
-                          </Form.Item>
-                          <Form.Item name={[field.name, 'last_verified_at']} label="最近校验时间" style={{ flex: 1 }}>
-                            <Input placeholder="例如：2026-04-08T10:30:00+08:00" />
-                          </Form.Item>
-                        </Space>
+                          <Space size={12} style={{ width: '100%' }} align="start">
+                            <Form.Item label="账号标识" style={{ flex: 1 }}>
+                              <Input value={form.getFieldValue(['codex_connections', field.name, 'account_label']) || '-'} readOnly />
+                            </Form.Item>
+                            <Form.Item label="连接状态" style={{ width: 160 }}>
+                              <Input value={form.getFieldValue(['codex_connections', field.name, 'status']) || '未连接'} readOnly />
+                            </Form.Item>
+                          </Space>
 
-                        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.codex_connections?.[field.name]?.status !== cur.codex_connections?.[field.name]?.status}>
-                          {({ getFieldValue }) => (
-                            <div style={{ fontSize: 12, color: '#666' }}>
-                              当前状态：<CodexStatusTag status={getFieldValue(['codex_connections', field.name, 'status'])} />
-                            </div>
-                          )}
-                        </Form.Item>
-                      </Card>
-                    ))}
+                          <Space size={12} style={{ width: '100%' }} align="start">
+                            <Form.Item label="凭据引用" style={{ flex: 1 }}>
+                              <Input value={form.getFieldValue(['codex_connections', field.name, 'credential_ref']) || '-'} readOnly />
+                            </Form.Item>
+                            <Form.Item label="最近校验时间" style={{ flex: 1 }}>
+                              <Input value={form.getFieldValue(['codex_connections', field.name, 'last_verified_at']) || '-'} readOnly />
+                            </Form.Item>
+                          </Space>
+
+                          <Space wrap style={{ marginBottom: 12 }}>
+                            <Button
+                              size="small"
+                              loading={runningActionId === `check:${connectionId}`}
+                              onClick={() => runCodexAction(connectionId, 'check', field.name)}
+                            >
+                              检测环境
+                            </Button>
+                            <Button
+                              size="small"
+                              loading={runningActionId === `install:${connectionId}`}
+                              onClick={() => runCodexAction(connectionId, 'install', field.name)}
+                            >
+                              安装 Codex
+                            </Button>
+                            <Button
+                              size="small"
+                              loading={runningActionId === `login:${connectionId}`}
+                              onClick={() => runCodexAction(connectionId, 'login', field.name)}
+                            >
+                              登录 Codex
+                            </Button>
+                          </Space>
+
+                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                            <Text type="secondary">安装状态：{form.getFieldValue(['codex_connections', field.name, 'install_status']) || 'unknown'}</Text>
+                            <Text type="secondary">登录状态：{form.getFieldValue(['codex_connections', field.name, 'login_status']) || 'unknown'}</Text>
+                            <Text type="secondary">CLI 版本：{form.getFieldValue(['codex_connections', field.name, 'cli_version']) || '-'}</Text>
+                            <Text type="secondary">安装路径：{form.getFieldValue(['codex_connections', field.name, 'install_path']) || '-'}</Text>
+                            <Text type="secondary">最近检查：{form.getFieldValue(['codex_connections', field.name, 'last_checked_at']) || '-'}</Text>
+                            {form.getFieldValue(['codex_connections', field.name, 'last_error']) ? (
+                              <Text type="danger">最近错误：{form.getFieldValue(['codex_connections', field.name, 'last_error'])}</Text>
+                            ) : null}
+                          </Space>
+
+                          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.codex_connections?.[field.name]?.status !== cur.codex_connections?.[field.name]?.status}>
+                            {({ getFieldValue }) => (
+                              <div style={{ fontSize: 12, color: '#666' }}>
+                                当前状态：<CodexStatusTag status={getFieldValue(['codex_connections', field.name, 'status'])} />
+                              </div>
+                            )}
+                          </Form.Item>
+
+                          {actionHints[connectionId] ? (
+                            <Alert
+                              style={{ marginTop: 12 }}
+                              type="info"
+                              showIcon
+                              message={actionHints[connectionId].message}
+                              description={(
+                                <Space direction="vertical" size={6}>
+                                  {actionHints[connectionId].manualCommand ? (
+                                    <Text code>{actionHints[connectionId].manualCommand}</Text>
+                                  ) : null}
+                                  {actionHints[connectionId].details ? (
+                                    <Text type="secondary">{actionHints[connectionId].details}</Text>
+                                  ) : null}
+                                </Space>
+                              )}
+                            />
+                          ) : null}
+                        </Card>
+                      )
+                    })}
                   </div>
                 )}
-              </Form.List>
-            ),
-          },
+                </Form.List>
+              </>
+              ),
+            },
         ]}
       />
     </Form>
