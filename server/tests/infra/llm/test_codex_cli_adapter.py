@@ -210,21 +210,16 @@ async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch
         )
 
     monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
-    # 禁用 shell 路径查找，直接使用固定的 shell 路径
-    monkeypatch.setattr(codex_cli_adapter.shutil, "which", lambda x: "/bin/bash" if x in ("bash", "sh") else x)
     adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
 
     result = await adapter.ainvoke([HumanMessage(content="hello")])
 
     assert result.content == "你好"
-    # 新的 simple 模式使用 shell 管道执行
-    assert captured["command_args"][0] == "/bin/bash"
-    assert captured["command_args"][1] == "-c"
-    # shell_cmd 应该包含 printf 管道和 codex exec
-    shell_cmd = captured["command_args"][2]
-    assert "printf" in shell_cmd
-    assert "codex" in shell_cmd
-    assert "exec" in shell_cmd
-    # 不再使用 stdin PIPE，而是通过 printf 管道传递 prompt
-    assert "stdin" not in captured["kwargs"]
+    # simple 模式直接执行 codex exec，prompt 作为参数传递
+    assert captured["command_args"][0] == "codex"
+    assert captured["command_args"][1] == "exec"
+    # prompt 作为最后一个参数
+    assert "hello" in captured["command_args"][-1]
+    # 不使用 stdin PIPE
+    assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
     assert captured["kwargs"]["start_new_session"] is True

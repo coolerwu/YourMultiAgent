@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shlex
-import shutil
 import signal
 import tempfile
 import time
@@ -90,8 +88,9 @@ class CodexCLIAdapter:
             args.extend(["-C", self._work_dir])
 
         if not structured_output:
-            args.append("-")  # 从 stdin 读取 prompt
-            content = await _run_codex_simple_with_retry(args, prompt, self._work_dir or "")
+            # 把 prompt 作为参数传递，避免 stdin 阻塞问题
+            args.append(prompt)
+            content = await _run_codex_simple_with_retry(args, self._work_dir or "")
             return AIMessage(content=content, tool_calls=[])
 
         schema = _build_output_schema(bool(self._tools))
@@ -356,41 +355,26 @@ def _is_retryable_codex_error(message: str) -> bool:
     return "timeout" in lowered or "temporarily unavailable" in lowered
 
 
-async def _run_codex_simple_with_retry(args: list[str], prompt: str, work_dir: str) -> str:
+async def _run_codex_simple_with_retry(args: list[str], work_dir: str) -> str:
     """
-    使用 shell 管道方式调用 Codex CLI，避免 codex exec - 从 stdin 读取时的阻塞问题。
-
-    Codex CLI 的 `exec -` 从 Python subprocess.PIPE 读取时容易阻塞。
-    改用 shell 管道 `printf 'prompt' | codex exec ... -` 的方式传递 prompt。
+    直接执行 Codex CLI，prompt 已作为参数传递，无需 stdin。
     """
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
-
-    # 构造 shell 命令: printf 'prompt' | codex exec ... -
-    # 使用 printf 避免 echo 的跨平台差异，对 prompt 中的特殊字符做转义
-    escaped_prompt = prompt.replace("'", "'\"'\"'")
-    shell_cmd = f"printf '%s' '{escaped_prompt}' | {' '.join(shlex.quote(a) for a in args)}"
-
     for attempt in range(1, attempts + 1):
         process = None
         started_at = time.monotonic()
         try:
             logger.info(
-                "codex_simple_start attempt=%s/%s timeout=%ss work_dir=%s shell_chars=%s prompt_chars=%s",
+                "codex_simple_start attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
                 attempt,
                 attempts,
                 _CODEX_EXEC_TIMEOUT_SECONDS,
                 work_dir,
-                len(shell_cmd),
-                len(prompt),
+                len(args),
             )
-
-            # 找到 shell 路径
-            shell_path = shutil.which("bash") or shutil.which("sh") or "/bin/sh"
-
             process = await asyncio.create_subprocess_exec(
-                shell_path,
-                "-c",
-                shell_cmd,
+                *args,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=work_dir or None,
