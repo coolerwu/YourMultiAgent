@@ -18,6 +18,9 @@ def test_build_codex_env_removes_openai_auth_vars_even_when_empty(monkeypatch):
 
     assert env["HOME"] == "/home/qiuqiu"
     assert env["OTEL_SDK_DISABLED"] == "true"
+    assert env["CI"] == "1"
+    assert env["TERM"] == "dumb"
+    assert env["NO_COLOR"] == "1"
     assert "OPENAI_API_KEY" not in env
     assert "OPENAI_AUTH_TOKEN" not in env
     assert "OPENAI_BASE_URL" not in env
@@ -29,6 +32,17 @@ def test_codex_adapter_disables_simple_mode_when_binding_tools():
     bound = adapter.bind_tools([{"name": "read_file"}])
 
     assert bound._simple_output_mode is False
+
+
+def test_codex_adapter_build_exec_args_uses_configured_sandbox(monkeypatch):
+    monkeypatch.setattr(codex_cli_adapter, "_CODEX_SANDBOX_MODE", "workspace-write")
+    adapter = CodexCLIAdapter(model="", codex_path="codex")
+
+    args = adapter._build_exec_args("hello")
+
+    assert "--sandbox" in args
+    sandbox_index = args.index("--sandbox")
+    assert args[sandbox_index + 1] == "workspace-write"
 
 
 def test_build_codex_env_removes_openai_auth_vars_even_when_non_empty(monkeypatch):
@@ -158,8 +172,10 @@ async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
     monkeypatch.setattr(codex_cli_adapter, "_CODEX_EXEC_TIMEOUT_SECONDS", 0.01)
     adapter = CodexCLIAdapter(model="", codex_path="codex")
 
-    with pytest.raises(ValueError, match="Codex CLI 执行超时"):
+    with pytest.raises(ValueError, match="Codex CLI 执行超时") as exc_info:
         await adapter.ainvoke([HumanMessage(content="hello")])
+
+    assert "codex exec 进程卡住" in str(exc_info.value)
 
     assert process.killed is True
     assert process.wait_called is True

@@ -25,22 +25,39 @@ export const api = {
   delete: (path) => request('DELETE', path),
 }
 
+function resolveWebSocketUrl(path) {
+  if (/^wss?:\/\//.test(path)) {
+    return path
+  }
+
+  if (BASE) {
+    const normalizedBase = BASE.replace(/^http/, 'ws')
+    return `${normalizedBase}${path}`
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}${path}`
+  }
+
+  return path
+}
+
 /**
  * WebSocket 流式执行。
- * 连接成功后立即发送 {user_message}，逐条接收 dict 事件。
+ * 连接成功后立即发送 payload，逐条接收 dict 事件。
  * 收到 done 或 error 后自动关闭连接。
  *
  * @param {string} path       - WebSocket 路径，如 /ws/workspaces/xxx/run
- * @param {string} userMessage
+ * @param {object} payload
  * @param {Function} onChunk  - 每条非 done 事件回调
  * @param {Function} onDone   - 收到 done 或连接关闭时回调
  * @param {Function} onError  - 收到 error 事件或连接异常时回调
  * @returns {WebSocket}       - 返回 ws 实例，外部可调用 ws.close() 中止
  */
 export function wsRun(path, payload, onChunk, onDone, onError) {
-  // http(s):// → ws(s)://；无协议前缀时直接拼
-  const wsBase = BASE.replace(/^http/, 'ws')
-  const ws = new WebSocket(`${wsBase}${path}`)
+  const ws = new WebSocket(resolveWebSocketUrl(path))
+  let completed = false
 
   ws.onopen = () => {
     ws.send(JSON.stringify(payload))
@@ -54,11 +71,13 @@ export function wsRun(path, payload, onChunk, onDone, onError) {
       return
     }
     if (data.type === 'done') {
+      completed = true
       onDone?.()
       ws.close()
       return
     }
     if (data.type === 'error') {
+      completed = true
       onError?.(new Error(data.message ?? 'WebSocket error'))
       ws.close()
       return
@@ -67,15 +86,18 @@ export function wsRun(path, payload, onChunk, onDone, onError) {
   }
 
   ws.onerror = () => {
+    completed = true
     onError?.(new Error('WebSocket 连接异常'))
   }
 
-  ws.onclose = (e) => {
-    // 非正常关闭（1000 = normal）且未被 onmessage 触发 done
-    if (e.code !== 1000) {
+  ws.onclose = () => {
+    if (!completed) {
+      completed = true
       onDone?.()
     }
   }
 
   return ws
 }
+
+export { resolveWebSocketUrl }

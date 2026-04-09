@@ -128,6 +128,9 @@ def build_codex_subprocess_env(base_env: dict[str, str] | None = None) -> dict[s
     """
     env = dict(base_env or os.environ)
     env["OTEL_SDK_DISABLED"] = "true"
+    env.setdefault("CI", "1")
+    env.setdefault("TERM", "dumb")
+    env.setdefault("NO_COLOR", "1")
 
     for key in list(env.keys()):
         if key.startswith(CODEX_ENV_DROP_PREFIXES):
