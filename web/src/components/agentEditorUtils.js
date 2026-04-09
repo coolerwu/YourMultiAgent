@@ -1,0 +1,128 @@
+export const PROVIDERS = [
+  { value: 'anthropic', label: 'Anthropic (Claude)' },
+  { value: 'openai', label: 'OpenAI (GPT)' },
+  { value: 'openai_compat', label: '兼容 OpenAI 协议' },
+]
+
+export const PRESET_MODELS = {
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6'],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+}
+
+export const DEFAULT_CODEX_MODEL = ''
+export const DEFAULT_CODEX_MODEL_PLACEHOLDER = '留空则使用 Codex CLI 默认模型'
+export const MODEL_RUNTIME_OPTIONS = [
+  { value: 'llm', label: 'LLM' },
+  { value: 'codex', label: 'Codex' },
+]
+
+export function resolveLlmProvider(workspace, currentProvider = '') {
+  const workspaceProvider = workspace?.default_provider
+  if (PROVIDERS.some((item) => item.value === workspaceProvider)) {
+    return workspaceProvider
+  }
+  if (PROVIDERS.some((item) => item.value === currentProvider)) {
+    return currentProvider
+  }
+  return 'openai_compat'
+}
+
+export function resolveLlmModel(provider, workspace, currentModel = '') {
+  const model = String(currentModel || '').trim()
+  if (model) return model
+  const workspaceModel = String(workspace?.default_model || '').trim()
+  if (workspace?.default_provider === provider && workspaceModel) {
+    return workspaceModel
+  }
+  if (provider === 'anthropic') return PRESET_MODELS.anthropic[0]
+  if (provider === 'openai') return PRESET_MODELS.openai[0]
+  return workspaceModel || 'deepseek-reasoner'
+}
+
+export function emptyAgent(defaults, role) {
+  const isChat = defaults?.kind === 'chat'
+  return {
+    id: `${role}_${Date.now()}`,
+    name: role === 'coordinator' ? (isChat ? '单聊助手' : '主控智能体') : '新 Worker',
+    provider: defaults?.default_provider ?? 'anthropic',
+    model: defaults?.default_model ?? 'claude-sonnet-4-6',
+    system_prompt: role === 'coordinator'
+      ? (
+        isChat
+          ? '你是当前单聊目录中的长期助手。需要结合该目录下的历史会话摘要、结构化记忆和当前用户消息，连续地完成对话。如果需要产出文件或中间结果，统一写入当前目录或其子目录，并明确告知路径。不要虚构已执行的操作；工具不足时直接说明。'
+          : '你是当前 Workspace 的主控智能体，负责统筹整个任务执行流程。先理解用户目标，再判断需要哪些 Worker 参与。将任务拆成清晰、可执行的子任务，并为每个 Worker 指定目标、输入、输出和完成标准。共享交接物统一写入当前 Workspace 的 shared/ 目录，例如 workspace/<workspace_name>/shared/；不要把 Worker 私有过程文件当成默认交接物。避免角色越权，例如产品类 Worker 不直接产出研发最终实现。最后汇总关键结果、交付物路径和最终结论。'
+      )
+      : '你是当前 Worker，请只完成分配给你的子任务。需要交接给其他角色的共享产物，统一写入当前 Workspace 的 shared/ 目录，例如 workspace/<workspace_name>/shared/；你的私有过程文件保留在自己的工作目录中。不要越权完成其他角色的最终职责。',
+    temperature: 0.7,
+    max_tokens: 4096,
+    tools: [],
+    llm_profile_id: '',
+    codex_connection_id: '',
+    base_url: '',
+    api_key: '',
+    work_subdir: role === 'coordinator' ? (isChat ? '' : 'coordinator') : '',
+    order: 0,
+  }
+}
+
+export function sortWorkers(items = []) {
+  return [...items].sort((a, b) => {
+    const aOrder = a.order > 0 ? a.order : Number.MAX_SAFE_INTEGER
+    const bOrder = b.order > 0 ? b.order : Number.MAX_SAFE_INTEGER
+    return aOrder - bOrder
+  }).map((item, index) => ({ ...item, order: index + 1 }))
+}
+
+export function normalizeWorkerOrder(items = []) {
+  return items.map((item, index) => ({ ...item, order: index + 1 }))
+}
+
+export function resolveRuntimeType(agent) {
+  return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
+}
+
+export function normalizeAgentForRuntime(agent, workspace) {
+  if (agent.provider === 'openai_codex') {
+    return {
+      ...agent,
+      llm_profile_id: '',
+      base_url: '',
+      api_key: '',
+    }
+  }
+  const provider = resolveLlmProvider(workspace, agent.provider)
+  return {
+    ...agent,
+    provider,
+    model: resolveLlmModel(provider, workspace, agent.model),
+    codex_connection_id: '',
+    llm_profile_id: '',
+  }
+}
+
+export function normalizeAgentForWorkspace(agent, workspace, role) {
+  if (workspace?.kind === 'chat' && role === 'coordinator') {
+    return {
+      ...agent,
+      work_subdir: '',
+    }
+  }
+  return agent
+}
+
+export function applyRuntimeSelection(values, workspace, runtimeTypeHint = '') {
+  const runtimeType = runtimeTypeHint || values.runtime_type || 'llm'
+  if (runtimeType === 'codex') {
+    return {
+      ...values,
+      provider: 'openai_codex',
+      model: String(values.model ?? '').trim(),
+    }
+  }
+  const llmProvider = resolveLlmProvider(workspace, values.provider)
+  return {
+    ...values,
+    provider: llmProvider,
+    model: resolveLlmModel(llmProvider, workspace, values.model),
+  }
+}

@@ -149,7 +149,8 @@ describe('Dashboard', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '配置' }))
 
     expect(await screen.findByText('单聊助手')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /编\s*辑/ })).toBeInTheDocument()
+    expect(screen.getByLabelText('名称')).toHaveValue('单聊助手')
+    expect(screen.queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '保存编排配置' })).toBeInTheDocument()
   })
 

@@ -1,12 +1,7 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import WorkspaceOrchestrationEditor from './WorkspaceOrchestrationEditor'
-
-async function clickCoordinatorEdit() {
-  const editButtons = await screen.findAllByRole('button', { name: /编\s*辑/ })
-  fireEvent.click(editButtons[0])
-}
 
 const { workspaceApiMock, graphApiMock, workerApiMock } = vi.hoisted(() => ({
   workspaceApiMock: {
@@ -75,7 +70,7 @@ describe('WorkspaceOrchestrationEditor', () => {
     workspaceApiMock.updateOrchestration.mockResolvedValue({})
   })
 
-  it('keeps stale codex connection on llm nodes out of codex mode', async () => {
+  it('renders the coordinator inline without opening a modal', async () => {
     render(
       <WorkspaceOrchestrationEditor
         workspace={{
@@ -87,12 +82,10 @@ describe('WorkspaceOrchestrationEditor', () => {
       />,
     )
 
-    await clickCoordinatorEdit()
-
     expect(await screen.findByLabelText('模型类型')).toBeInTheDocument()
     expect(screen.getByLabelText('Provider')).toBeInTheDocument()
     expect(screen.queryByLabelText('Codex 模型')).not.toBeInTheDocument()
-    expect(screen.queryByText('通用 LLM 配置')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
   })
 
   it('shows codex-only fields after selecting codex runtime type', async () => {
@@ -107,20 +100,12 @@ describe('WorkspaceOrchestrationEditor', () => {
       />,
     )
 
-    await clickCoordinatorEdit()
-
-    fireEvent.mouseDown(screen.getByLabelText('模型类型'))
+    fireEvent.mouseDown(await screen.findByLabelText('模型类型'))
     fireEvent.click(await screen.findByText('Codex'))
 
     expect(await screen.findByPlaceholderText('留空则使用 Codex CLI 默认模型')).toBeInTheDocument()
     expect(screen.getByLabelText('Codex 登录连接')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('留空则使用 Codex CLI 默认模型')).toHaveAttribute(
-      'placeholder',
-      '留空则使用 Codex CLI 默认模型',
-    )
-    expect(
-      screen.getByText('建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('建议留空，直接使用当前 Codex CLI 账号默认可用模型；只有明确知道模型权限时再手动填写')).toBeInTheDocument()
   })
 
   it('hides work subdir for chat coordinator', async () => {
@@ -150,8 +135,57 @@ describe('WorkspaceOrchestrationEditor', () => {
       />,
     )
 
-    expect(await screen.findByText('当前目录根')).toBeInTheDocument()
-    expect(screen.queryByText(/^chat$/)).not.toBeInTheDocument()
+    expect(await screen.findByText('单聊说明')).toBeInTheDocument()
+    expect(screen.getByLabelText('名称')).toHaveValue('单聊助手')
+    expect(screen.getByText('当前目录根')).toBeInTheDocument()
+    expect(screen.queryByLabelText('工作子目录')).not.toBeInTheDocument()
   })
 
+  it('switches the inline editor when selecting a worker card', async () => {
+    workspaceApiMock.getOrchestration.mockResolvedValueOnce({
+      coordinator: {
+        id: 'coordinator',
+        name: '主控智能体',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        system_prompt: '你是主控',
+        llm_profile_id: '',
+        codex_connection_id: '',
+        tools: [],
+        work_subdir: 'coordinator',
+      },
+      workers: [{
+        id: 'worker-1',
+        name: '前端 Worker',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        system_prompt: '你负责前端实现',
+        llm_profile_id: '',
+        codex_connection_id: '',
+        tools: ['ui.render'],
+        work_subdir: 'frontend',
+        order: 1,
+      }],
+    })
+
+    render(
+      <WorkspaceOrchestrationEditor
+        workspace={{
+          id: 'ws-1',
+          kind: 'workspace',
+          llm_profiles: [],
+          codex_connections: [],
+        }}
+      />,
+    )
+
+    expect(await screen.findByDisplayValue('主控智能体')).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByText('#1 前端 Worker'))
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('前端 Worker')).toBeInTheDocument()
+    })
+    expect(screen.getByLabelText('工作子目录')).toHaveValue('frontend')
+  })
 })
