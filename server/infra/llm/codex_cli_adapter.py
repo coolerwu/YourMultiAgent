@@ -298,13 +298,13 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
                 *args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.DEVNULL,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
                 start_new_session=True,
             )
             try:
-                stdout, stderr = await _read_process_output(process)
+                stdout, _ = await _read_process_output(process)
             except asyncio.TimeoutError:
                 logger.warning(
                     "codex_exec_timeout attempt=%s/%s pid=%s elapsed_ms=%s",
@@ -332,19 +332,18 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
             raise
 
         logger.info(
-            "codex_exec_end attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
+            "codex_exec_end attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s",
             attempt,
             attempts,
             getattr(process, "pid", 0),
             process.returncode,
             int((time.monotonic() - started_at) * 1000),
             len(stdout or b""),
-            len(stderr or b""),
         )
         stdout_text = stdout.decode("utf-8", errors="ignore")
-        stderr_text = stderr.decode("utf-8", errors="ignore")
+        # stderr 被重定向到 DEVNULL，错误信息通过 stdout 获取
         if process.returncode != 0:
-            message = _format_codex_error(stdout_text, stderr_text)
+            message = _format_codex_error(stdout_text, "")
             if attempt < attempts and _is_retryable_codex_error(message):
                 continue
             raise ValueError(message)
@@ -379,7 +378,7 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
                 *args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.DEVNULL,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
                 start_new_session=True,

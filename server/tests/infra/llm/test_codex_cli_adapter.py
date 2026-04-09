@@ -356,6 +356,8 @@ async def test_codex_adapter_simple_mode_reads_stdout_without_schema(monkeypatch
     assert "--json" in captured["args"]
     assert any("[human]" in arg for arg in captured["args"])
     assert captured["kwargs"]["stdin"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
+    # stderr 应该被重定向到 DEVNULL 避免管道阻塞
+    assert captured["kwargs"]["stderr"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
 
 
 @pytest.mark.asyncio
@@ -402,6 +404,7 @@ async def test_codex_adapter_ignores_non_json_prefix_before_jsonl_events(monkeyp
 
 @pytest.mark.asyncio
 async def test_stream_codex_text_with_retry_yields_message_deltas(monkeypatch):
+    captured = {}
     process = _StreamingProcess(
         [
             '{"type":"thread.started","thread_id":"thread-1"}\n',
@@ -412,7 +415,8 @@ async def test_stream_codex_text_with_retry_yields_message_deltas(monkeypatch):
         ]
     )
 
-    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured["kwargs"] = kwargs
         return process
 
     monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
@@ -421,6 +425,8 @@ async def test_stream_codex_text_with_retry_yields_message_deltas(monkeypatch):
 
     assert deltas == ["你", "好"]
     assert process.wait_called is True
+    # 流式模式下 stderr 也应该被重定向到 DEVNULL 避免管道死锁
+    assert captured["kwargs"]["stderr"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
 
 
 @pytest.mark.asyncio
