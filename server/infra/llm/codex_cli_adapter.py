@@ -239,6 +239,23 @@ def _explain_known_codex_error(raw_message: str) -> str:
             "Codex CLI 执行失败：当前宿主机不允许 Codex 的 read-only sandbox 创建隔离网络/loopback。"
             "这不是 prompt 或参数格式问题，而是运行环境对 bubblewrap/net namespace 的权限限制。"
         )
+    if (
+        "responses_websocket" in lowered
+        and "operation not permitted" in lowered
+    ) or (
+        "chatgpt.com/backend-api/codex/responses" in lowered
+        and ("operation not permitted" in lowered or "error sending request for url" in lowered)
+    ):
+        return (
+            "Codex CLI 执行失败：当前运行环境禁止 Codex 访问 ChatGPT Codex 实时响应通道。"
+            "日志里已经出现 `responses_websocket` / `Operation not permitted`，这通常意味着宿主机、沙箱或企业网络策略拦截了"
+            " `wss://chatgpt.com/backend-api/codex/responses`。"
+        )
+    if "could not create otel exporter" in lowered:
+        return (
+            "Codex CLI 执行失败：Codex 进程启动时初始化 OTEL 导出器失败。"
+            "当前版本会尽量清理 OTEL 相关环境变量；如果仍复现，通常说明宿主环境里还有额外的观测配置注入。"
+        )
     return ""
 
 

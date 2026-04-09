@@ -113,6 +113,22 @@ def test_build_codex_env_removes_openai_prefix_vars(monkeypatch):
     assert "AZURE_OPENAI_ENDPOINT" not in env
 
 
+def test_build_codex_env_removes_otel_exporter_vars(monkeypatch):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel.example.com")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer bad")
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "yourmultiagent")
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.name=yourmultiagent")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
+
+    env = _build_codex_env()
+
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
+    assert "OTEL_SERVICE_NAME" not in env
+    assert "OTEL_RESOURCE_ATTRIBUTES" not in env
+    assert "OTEL_TRACES_EXPORTER" not in env
+
+
 def test_format_codex_error_explains_auth_conflict():
     message = _format_codex_error(
         "",
@@ -138,6 +154,25 @@ def test_format_codex_error_explains_sandbox_denial():
     )
 
     assert "宿主机不允许 Codex 的 read-only sandbox" in message
+
+
+def test_format_codex_error_explains_websocket_permission_denial():
+    message = _format_codex_error(
+        "",
+        "failed to connect to websocket: IO error: Operation not permitted (os error 1), "
+        "url: wss://chatgpt.com/backend-api/codex/responses",
+    )
+
+    assert "禁止 Codex 访问 ChatGPT Codex 实时响应通道" in message
+
+
+def test_format_codex_error_explains_otel_exporter_failure():
+    message = _format_codex_error(
+        "",
+        "Could not create otel exporter: panicked during initialization",
+    )
+
+    assert "初始化 OTEL 导出器失败" in message
 
 
 class _BlockingProcess:

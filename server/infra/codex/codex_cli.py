@@ -19,6 +19,7 @@ CODEX_PACKAGE = "@openai/codex"
 CODEX_ENV_DROP_PREFIXES = (
     "OPENAI_",
     "AZURE_OPENAI_",
+    "OTEL_EXPORTER_OTLP_",
 )
 
 
@@ -135,6 +136,12 @@ def build_codex_subprocess_env(base_env: dict[str, str] | None = None) -> dict[s
     for key in list(env.keys()):
         if key.startswith(CODEX_ENV_DROP_PREFIXES):
             env.pop(key, None)
+
+    env.pop("OTEL_SERVICE_NAME", None)
+    env.pop("OTEL_RESOURCE_ATTRIBUTES", None)
+    env.pop("OTEL_TRACES_EXPORTER", None)
+    env.pop("OTEL_METRICS_EXPORTER", None)
+    env.pop("OTEL_LOGS_EXPORTER", None)
 
     return env
 
