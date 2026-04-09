@@ -139,23 +139,27 @@ export default function AgentEditorPanel({
               options={MODEL_RUNTIME_OPTIONS}
               onChange={(value) => {
                 if (value === 'codex') {
-                  form.setFieldsValue({
+                  const updates = {
                     provider: 'openai_codex',
                     model: DEFAULT_CODEX_MODEL,
                     llm_profile_id: '',
                     base_url: '',
                     api_key: '',
-                  })
+                  }
+                  form.setFieldsValue(updates)
+                  emitChange({ ...form.getFieldsValue(true), runtime_type: value, ...updates })
                   return
                 }
                 const defaultProfile = getDefaultLlmProfile(workspace)
-                form.setFieldsValue({
+                const updates = {
                   provider: defaultProfile?.provider ?? 'anthropic',
                   model: defaultProfile?.model ?? '',
                   base_url: defaultProfile?.base_url ?? '',
                   codex_connection_id: '',
                   llm_profile_id: defaultProfile?.id ?? '',
-                })
+                }
+                form.setFieldsValue(updates)
+                emitChange({ ...form.getFieldsValue(true), runtime_type: value, ...updates })
               }}
             />
           </Form.Item>
