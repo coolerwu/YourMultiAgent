@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import signal
 import time
 from typing import Any
@@ -357,6 +358,23 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
     raise ValueError("Codex CLI 执行失败")
 
 
+def _build_streaming_args(args: list[str]) -> list[str]:
+    """
+    构建用于流式输出的命令参数。
+    使用 stdbuf 强制行缓冲，确保 Codex 立即输出每一行。
+    """
+    # 检查 stdbuf 是否可用
+    stdbuf_path = os.environ.get("STDBUF_PATH", "stdbuf")
+    try:
+        import shutil
+        if shutil.which(stdbuf_path):
+            # -oL: stdout 行缓冲, -eL: stderr 行缓冲
+            return [stdbuf_path, "-oL", "-eL"] + args
+    except Exception:
+        pass
+    return args
+
+
 async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
     for attempt in range(1, attempts + 1):
@@ -374,8 +392,10 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
                 work_dir,
                 len(args),
             )
+            # 使用 stdbuf 强制行缓冲
+            buffered_args = _build_streaming_args(args)
             process = await asyncio.create_subprocess_exec(
-                *args,
+                *buffered_args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
