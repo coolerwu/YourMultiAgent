@@ -46,7 +46,9 @@ YourMultiAgent/
 └── worker_client/           # npm 浏览器 Worker 客户端（Playwright）
 ```
 
-## 快速开始
+## 快速开始 / Quick Start
+
+### 中文
 
 推荐直接使用一键部署脚本。首次安装和后续增量更新都优先走这个入口：
 
@@ -71,6 +73,51 @@ chmod +x run.sh
 - 若服务器没有 `git`，还需要具备 `curl` 和 `tar`
 - 前端构建产物 `server/web/` 已进入 Git 仓库，否则远端拉代码后不会拿到最新页面
 - 生产数据必须放在 `~/.yourmultiagent`，不要放进项目目录下的 `data/`
+
+### English
+
+Use the one-command deployment script for both first-time setup and incremental updates:
+
+```bash
+curl -O https://raw.githubusercontent.com/coolerwu/YourMultiAgent/main/run.sh
+chmod +x run.sh
+./run.sh prod 10000
+```
+
+What this command does:
+
+- Clones/pulls code from `https://github.com/coolerwu/YourMultiAgent.git` when `git` is available
+- Falls back to downloading and extracting the GitHub source archive when `git` is unavailable
+- Creates or reuses `~/.yourmultiagent` as the production data directory
+- Creates `.venv` and installs runtime dependencies
+- Registers or updates the `yourmultiagent` `systemd` service
+- Starts/restarts the service and verifies `/api/health`
+
+Prerequisites:
+
+- `python3`, `python3-venv`, `sudo`, and `systemctl` are available on the server
+- If `git` is unavailable, `curl` and `tar` are also required
+- Front-end build output (`server/web/`) must be committed to the repository for remote deployments
+- Production data should stay in `~/.yourmultiagent` (do not store production data under project `data/`)
+
+## C4 Level 1（System Context）/ C4 一级图（系统上下文）
+
+```mermaid
+flowchart LR
+    user["Person: User / 用户"]
+    yma["System: YourMultiAgent\nWeb UI + API + Orchestration"]
+    llm["External System: LLM Providers\nOpenAI / Anthropic"]
+    local["External System: Local Worker Runtime\nBuilt-in capabilities"]
+    remote["External System: Remote Worker Nodes\nConnected via WebSocket"]
+
+    user -->|Configure / Run / Observe| yma
+    yma -->|Model calls| llm
+    yma -->|Execute tasks| local
+    yma <--> |WS /ws/worker| remote
+```
+
+- **中文**：用户通过 Web UI 管理 Workspace、配置 Agent 并发起运行；YourMultiAgent 统一编排执行，并调用外部 LLM 与本地/远程 Worker 完成任务。
+- **English**: Users manage workspaces, configure agents, and run tasks via the Web UI; YourMultiAgent orchestrates execution and integrates with external LLM providers plus local/remote workers.
 
 ## 本地开发
 
