@@ -30,8 +30,9 @@ def _int_env(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-_CODEX_EXEC_TIMEOUT_SECONDS = _int_env("YOURMULTIAGENT_CODEX_EXEC_TIMEOUT_SECONDS", 300)
+_CODEX_EXEC_TIMEOUT_SECONDS = _int_env("YOURMULTIAGENT_CODEX_EXEC_TIMEOUT_SECONDS", 120)
 _CODEX_EXEC_MAX_ATTEMPTS = _int_env("YOURMULTIAGENT_CODEX_EXEC_MAX_ATTEMPTS", 2)
+_CODEX_SANDBOX_MODE = (os.environ.get("YOURMULTIAGENT_CODEX_SANDBOX_MODE", "read-only") or "").strip() or "read-only"
 logger = get_logger(__name__)
 
 
@@ -91,7 +92,7 @@ class CodexCLIAdapter:
             "exec",
             "--skip-git-repo-check",
             "--sandbox",
-            "read-only",
+            _CODEX_SANDBOX_MODE,
             "--color",
             "never",
             "--json",
@@ -249,16 +250,13 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
                 *args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
                 start_new_session=True,
             )
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
-                )
+                stdout, stderr = await _read_process_output(process)
             except asyncio.TimeoutError:
                 logger.warning(
                     "codex_exec_timeout attempt=%s/%s pid=%s elapsed_ms=%s",
@@ -271,7 +269,8 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
                 if attempt < attempts:
                     continue
                 raise ValueError(
-                    f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒，重试 {attempts} 次仍失败），请检查当前模型配置或登录态。"
+                    f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒，重试 {attempts} 次仍失败）。\n"
+                    "这通常意味着 codex exec 进程卡住（例如 CLI 版本缺陷或本机环境兼容性问题），建议先升级 Codex CLI 后重试。"
                 )
         except asyncio.CancelledError:
             if process is not None:
@@ -309,6 +308,25 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
         raise ValueError("Codex CLI 返回了空结果")
 
     raise ValueError("Codex CLI 执行失败")
+
+
+async def _read_process_output(process: asyncio.subprocess.Process) -> tuple[bytes, bytes]:
+    stdout_stream = getattr(process, "stdout", None)
+    if stdout_stream is None or not hasattr(stdout_stream, "readline"):
+        return await asyncio.wait_for(
+            process.communicate(),
+            timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+        )
+
+    chunks: list[bytes] = []
+    while True:
+        line = await asyncio.wait_for(stdout_stream.readline(), timeout=_CODEX_EXEC_TIMEOUT_SECONDS)
+        if not line:
+            break
+        chunks.append(line)
+
+    await asyncio.wait_for(process.wait(), timeout=5)
+    return b"".join(chunks), b""
 
 
 def _is_retryable_codex_error(message: str) -> bool:
