@@ -8,6 +8,7 @@ import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { Alert, Button, Card, Form, Input, Modal, Select, Space, Tabs, Tag, Typography, message } from 'antd'
 import { useEffect, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
+import { buildProviderName } from './agentEditorUtils'
 
 const { Option } = Select
 const { Text } = Typography
@@ -48,10 +49,6 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
         workspaceApi.getCodexRuntimeSummary(),
       ])
       form.setFieldsValue({
-        default_provider: settings.default_provider ?? 'anthropic',
-        default_model: settings.default_model ?? 'claude-sonnet-4-6',
-        default_base_url: settings.default_base_url ?? '',
-        default_api_key: settings.default_api_key ?? '',
         llm_profiles: settings.llm_profiles ?? [],
         codex_connections: settings.codex_connections ?? [],
       })
@@ -70,13 +67,12 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
     }
 
     return {
-      default_provider: vals.default_provider,
-      default_model: vals.default_model,
-      default_base_url: vals.default_base_url ?? '',
-      default_api_key: vals.default_api_key ?? '',
       llm_profiles: (vals.llm_profiles ?? []).map((profile, index) => ({
         ...profile,
         id: profile.id || `llm_${Date.now()}_${index}`,
+        name: String(profile.name || '').trim() || buildProviderName(profile.model, profile.base_url),
+        base_url: profile.base_url ?? '',
+        api_key: profile.api_key ?? '',
       })),
       codex_connections: (vals.codex_connections ?? []).map((connection, index) => ({
         ...connection,
@@ -98,10 +94,6 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
         message.success(successMessage)
       }
       form.setFieldsValue({
-        default_provider: saved.default_provider ?? 'anthropic',
-        default_model: saved.default_model ?? 'claude-sonnet-4-6',
-        default_base_url: saved.default_base_url ?? '',
-        default_api_key: saved.default_api_key ?? '',
         llm_profiles: saved.llm_profiles ?? [],
         codex_connections: saved.codex_connections ?? [],
       })
@@ -180,77 +172,21 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
             label: 'API Providers',
             children: (
               <>
-                <Space size={12} style={{ width: '100%' }} align="start">
-                  <Form.Item
-                    name="default_provider"
-                    label="默认 Provider"
-                    rules={[{ required: true }]}
-                    style={{ flex: 1 }}
-                  >
-                    <Select>
-                      {PROVIDERS.map((p) => <Option key={p.value} value={p.value}>{p.label}</Option>)}
-                    </Select>
-                  </Form.Item>
-
-                  <Form.Item
-                    noStyle
-                    shouldUpdate={(prev, cur) => prev.default_provider !== cur.default_provider}
-                  >
-                    {({ getFieldValue }) => {
-                      const provider = getFieldValue('default_provider')
-                      return (
-                        <Form.Item
-                          name="default_model"
-                          label="默认模型"
-                          rules={[{ required: true, message: '请输入默认模型' }]}
-                          style={{ flex: 1 }}
-                        >
-                          {provider === 'openai_compat' ? (
-                            <Input placeholder="例如：deepseek-chat" />
-                          ) : (
-                            <Select>
-                              {(PRESET_MODELS[provider] ?? []).map((m) => <Option key={m} value={m}>{m}</Option>)}
-                            </Select>
-                          )}
-                        </Form.Item>
-                      )
-                    }}
-                  </Form.Item>
-                </Space>
-
-                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.default_provider !== cur.default_provider}>
-                  {({ getFieldValue }) =>
-                    getFieldValue('default_provider') === 'openai_compat' && (
-                      <Form.Item
-                        name="default_base_url"
-                        label="默认 Base URL"
-                        rules={[{ required: true, message: '请输入默认 base_url' }]}
-                      >
-                        <Input placeholder="例如：https://api.deepseek.com/v1" />
-                      </Form.Item>
-                    )
-                  }
-                </Form.Item>
-
-                <Form.Item name="default_api_key" label="默认 API Key（选填）">
-                  <Input.Password placeholder="sk-..." />
-                </Form.Item>
-
                 <Form.List name="llm_profiles">
                   {(fields, { add, remove }) => (
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                         <div>
-                          <div style={{ fontWeight: 600 }}>可复用 API Provider</div>
+                          <div style={{ fontWeight: 600 }}>共享 API Providers</div>
                           <div style={{ fontSize: 12, color: '#888' }}>
-                            所有 Workspace 共享引用；适用于 API Key / Base URL 模式
+                            这里只有列表，没有默认 Provider。每个 LLM 角色都要显式绑定其中一项。
                           </div>
                         </div>
                         <Button
                           icon={<PlusOutlined />}
                           onClick={() => add({
                             id: '',
-                            name: '',
+                            name: buildProviderName('claude-sonnet-4-6', ''),
                             provider: 'anthropic',
                             model: 'claude-sonnet-4-6',
                             base_url: '',
@@ -266,7 +202,7 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
                           key={field.key}
                           size="small"
                           style={{ marginBottom: 12 }}
-                          title={`Provider #${field.name + 1}`}
+                          title={`API Provider #${field.name + 1}`}
                           extra={<Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />}
                         >
                           <Form.Item name={[field.name, 'id']} hidden>
@@ -278,7 +214,7 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
                             label="名称"
                             rules={[{ required: true, message: '请输入名称' }]}
                           >
-                            <Input placeholder="例如：Claude 主力 / DeepSeek 推理 / GPT-4o" />
+                            <Input placeholder="默认可填成：模型 + URL；也可以改成业务化名称" />
                           </Form.Item>
 
                           <Space size={12} style={{ width: '100%' }} align="start">
@@ -297,6 +233,8 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
                               noStyle
                               shouldUpdate={(prev, cur) =>
                                 prev.llm_profiles?.[field.name]?.provider !== cur.llm_profiles?.[field.name]?.provider
+                                || prev.llm_profiles?.[field.name]?.model !== cur.llm_profiles?.[field.name]?.model
+                                || prev.llm_profiles?.[field.name]?.base_url !== cur.llm_profiles?.[field.name]?.base_url
                               }
                             >
                               {({ getFieldValue }) => {
@@ -322,26 +260,47 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
                           </Space>
 
                           <Form.Item
-                            noStyle
-                            shouldUpdate={(prev, cur) =>
-                              prev.llm_profiles?.[field.name]?.provider !== cur.llm_profiles?.[field.name]?.provider
-                            }
+                            name={[field.name, 'base_url']}
+                            label="URL"
+                            rules={[
+                              ({ getFieldValue }) => ({
+                                validator(_, value) {
+                                  const provider = getFieldValue(['llm_profiles', field.name, 'provider'])
+                                  if (provider === 'openai_compat' && !String(value || '').trim()) {
+                                    return Promise.reject(new Error('兼容 OpenAI 协议时必须填写 URL'))
+                                  }
+                                  return Promise.resolve()
+                                },
+                              }),
+                            ]}
                           >
-                            {({ getFieldValue }) =>
-                              getFieldValue(['llm_profiles', field.name, 'provider']) === 'openai_compat' && (
-                                <Form.Item
-                                  name={[field.name, 'base_url']}
-                                  label="Base URL"
-                                  rules={[{ required: true, message: '请输入 base_url' }]}
-                                >
-                                  <Input placeholder="例如：https://api.deepseek.com/v1" />
-                                </Form.Item>
-                              )
-                            }
+                            <Input placeholder="例如：https://api.deepseek.com/v1；官方提供方可留空" />
                           </Form.Item>
 
                           <Form.Item name={[field.name, 'api_key']} label="API Key（选填）">
                             <Input.Password placeholder="sk-..." />
+                          </Form.Item>
+
+                          <Form.Item
+                            noStyle
+                            shouldUpdate={(prev, cur) =>
+                              prev.llm_profiles?.[field.name]?.model !== cur.llm_profiles?.[field.name]?.model
+                              || prev.llm_profiles?.[field.name]?.base_url !== cur.llm_profiles?.[field.name]?.base_url
+                              || prev.llm_profiles?.[field.name]?.name !== cur.llm_profiles?.[field.name]?.name
+                            }
+                          >
+                            {({ getFieldValue, setFieldValue }) => {
+                              const model = getFieldValue(['llm_profiles', field.name, 'model'])
+                              const baseUrl = getFieldValue(['llm_profiles', field.name, 'base_url'])
+                              const currentName = getFieldValue(['llm_profiles', field.name, 'name'])
+                              const generatedName = buildProviderName(model, baseUrl)
+                              if (!String(currentName || '').trim()) {
+                                setTimeout(() => {
+                                  setFieldValue(['llm_profiles', field.name, 'name'], generatedName)
+                                }, 0)
+                              }
+                              return null
+                            }}
                           </Form.Item>
                         </Card>
                       ))}

@@ -251,6 +251,10 @@ cd web && npm run build
 - `Codex 运行时`
   - 查看当前宿主机上的 Codex CLI 版本、安装路径、登录状态
   - 执行 `检测环境`、`安装/更新 Codex`、`登录 Codex`
+- `全局模型连接`
+  - `API Providers` 现在只有共享列表，没有默认 Provider
+  - 每个列表项维护 `名称 / Provider 类型 / 模型 / URL / API Key`
+  - 所有 LLM 角色都必须显式绑定其中一个 API Provider
 - `应用日志`
   - 直接查看当前宿主机唯一的 `app.log`
   - 统一记录 HTTP、WebSocket、Worker、Store、AI、系统设置与 `uvicorn` 访问事件
@@ -264,7 +268,7 @@ cd web && npm run build
 
 编排与图编辑中的模型配置弹窗也已统一为先选 `模型类型`：
 
-- 选择 `LLM` 时显示通用 LLM 配置、Provider 和模型字段
+- 选择 `LLM` 时显示共享 `API Provider` 绑定，不再使用全局默认 Provider
 - 选择 `Codex` 时只显示 Codex 登录连接和 Codex 模型字段
 
 安装或更新 Codex 完成后，建议：

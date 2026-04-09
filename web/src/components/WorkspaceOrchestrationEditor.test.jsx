@@ -60,7 +60,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
         system_prompt: '你是主控',
-        llm_profile_id: '',
+        llm_profile_id: 'llm-1',
         codex_connection_id: 'codex-1',
         tools: [],
         work_subdir: 'coordinator',
@@ -76,14 +76,14 @@ describe('WorkspaceOrchestrationEditor', () => {
         workspace={{
           id: 'ws-1',
           kind: 'workspace',
-          llm_profiles: [],
+          llm_profiles: [{ id: 'llm-1', name: 'Claude 主力', provider: 'anthropic', model: 'claude-sonnet-4-6', base_url: '' }],
           codex_connections: [{ id: 'codex-1', name: '个人 Codex' }],
         }}
       />,
     )
 
     expect(await screen.findByLabelText('模型类型')).toBeInTheDocument()
-    expect(screen.getByLabelText('Provider')).toBeInTheDocument()
+    expect(screen.getByLabelText('API Provider')).toBeInTheDocument()
     expect(screen.queryByLabelText('Codex 模型')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
   })
@@ -94,7 +94,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         workspace={{
           id: 'ws-1',
           kind: 'workspace',
-          llm_profiles: [],
+          llm_profiles: [{ id: 'llm-1', name: 'Claude 主力', provider: 'anthropic', model: 'claude-sonnet-4-6', base_url: '' }],
           codex_connections: [{ id: 'codex-1', name: '个人 Codex' }],
         }}
       />,
@@ -116,7 +116,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
         system_prompt: '你是单聊助手',
-        llm_profile_id: '',
+        llm_profile_id: 'llm-1',
         codex_connection_id: '',
         tools: [],
         work_subdir: 'chat',
@@ -129,7 +129,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         workspace={{
           id: 'ws-chat',
           kind: 'chat',
-          llm_profiles: [],
+          llm_profiles: [{ id: 'llm-1', name: 'Claude 主力', provider: 'anthropic', model: 'claude-sonnet-4-6', base_url: '' }],
           codex_connections: [],
         }}
       />,
@@ -149,7 +149,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
         system_prompt: '你是主控',
-        llm_profile_id: '',
+        llm_profile_id: 'llm-1',
         codex_connection_id: '',
         tools: [],
         work_subdir: 'coordinator',
@@ -160,7 +160,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
         system_prompt: '你负责前端实现',
-        llm_profile_id: '',
+        llm_profile_id: 'llm-1',
         codex_connection_id: '',
         tools: ['ui.render'],
         work_subdir: 'frontend',
@@ -173,7 +173,7 @@ describe('WorkspaceOrchestrationEditor', () => {
         workspace={{
           id: 'ws-1',
           kind: 'workspace',
-          llm_profiles: [],
+          llm_profiles: [{ id: 'llm-1', name: 'Claude 主力', provider: 'anthropic', model: 'claude-sonnet-4-6', base_url: '' }],
           codex_connections: [],
         }}
       />,

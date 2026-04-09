@@ -6,6 +6,11 @@
 
 页面左侧提供 `系统设置` 入口，当前包含两类能力：
 
+- `全局模型连接`
+  - `API Providers` 只有共享列表，没有默认 Provider
+  - 每个 Provider 项显式维护 `名称 / Provider 类型 / 模型 / URL / API Key`
+  - 所有使用 LLM 的角色都必须显式绑定某个 `API Provider`
+
 - `Update Now`
   - 对当前应用执行增量更新
   - 流程为：`git fetch/pull` -> 同步 Python 依赖 -> 重启服务
@@ -55,6 +60,22 @@
 - `uvicorn` access/error 日志
 
 如果页面运行卡住，可先查看 `app.log` 中最后一段 `http_request_error`、`workspace_run_failed`、`ai_error`、`tool_call` 或 `http_access` 记录定位。
+
+## API Providers
+
+当前 API Provider 策略如下：
+
+- 不再维护 `默认 Provider / 默认模型 / 默认 URL / 默认 API Key`
+- 全局只保留 `API Providers` 列表和 `Codex 登录连接` 列表
+- 新增 Provider 时，名称会先按“模型 + URL”自动填充，但允许用户自行改名
+- LLM 角色保存时必须带明确的 `llm_profile_id`
+- 如果一个 Workspace 里没有任何 API Provider，则 LLM 角色无法完成绑定和保存
+
+这意味着运行时解析顺序也随之收敛：
+
+- 优先读取角色自身的 `llm_profile_id`
+- 再从全局 `llm_profiles` 中解析 provider/model/base_url/api_key
+- 仅在角色节点显式填写覆盖字段时才覆盖列表项值
 
 ## Codex 安装与登录
 

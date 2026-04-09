@@ -8,7 +8,9 @@ import AgentSummaryCard, { WorkerCardActions } from './AgentSummaryCard'
 import {
   emptyAgent,
   normalizeWorkerOrder,
+  resolveLlmDisplay,
   sortWorkers,
+  validateLlmBinding,
 } from './agentEditorUtils'
 
 const { Text } = Typography
@@ -94,8 +96,8 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
         coordinator_prompt: coordinator.system_prompt,
         existing_worker_names: workers.map((item) => item.name),
         available_tools: capabilities.map((item) => item.name),
-        provider: workspace?.default_provider ?? coordinator.provider ?? 'anthropic',
-        model: workspace?.default_model ?? coordinator.model ?? 'claude-sonnet-4-6',
+        provider: coordinator.provider ?? 'anthropic',
+        model: coordinator.model ?? '',
         llm_profile_id: coordinator.llm_profile_id ?? '',
         codex_connection_id: coordinator.codex_connection_id ?? '',
         base_url: coordinator.base_url ?? '',
@@ -180,6 +182,14 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
 
   const persist = async () => {
     if (!workspace?.id) return
+    const bindingError = [
+      validateLlmBinding(coordinatorRef.current, workspace),
+      ...workersRef.current.map((item) => validateLlmBinding(item, workspace)),
+    ].find(Boolean)
+    if (bindingError) {
+      message.error(bindingError)
+      return
+    }
     setSaving(true)
     try {
       const nextWorkers = normalizeWorkerOrder(workersRef.current)
@@ -220,7 +230,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
                   <AgentSummaryCard
                     title={coordinator.name}
-                    subtitle={coordinator.model}
+                    subtitle={resolveLlmDisplay(coordinator, workspace)}
                     description={coordinator.work_subdir || 'coordinator'}
                     tools={coordinator.tools ?? []}
                     active={selectedRole.type === 'coordinator'}
@@ -232,7 +242,7 @@ export default function WorkspaceOrchestrationEditor({ workspace, onSaved }) {
                     <AgentSummaryCard
                       key={worker.id}
                       title={`#${worker.order || index + 1} ${worker.name}`}
-                      subtitle={worker.model}
+                      subtitle={resolveLlmDisplay(worker, workspace)}
                       description={`目录：${worker.work_subdir || worker.name}`}
                       tools={worker.tools ?? []}
                       active={selectedRole.type === 'worker' && selectedRole.index === index}

@@ -24,92 +24,25 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
-  Button, Dropdown, Form, Input, InputNumber, Menu, Modal,
+  Alert, Button, Dropdown, Form, Input, InputNumber, Menu, Modal,
   Select, Space, Tag, Tooltip, message,
 } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { graphApi, workerApi } from '../utils/graphApi'
+import {
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_CODEX_MODEL_PLACEHOLDER,
+  MODEL_RUNTIME_OPTIONS,
+  applyRuntimeSelection,
+  emptyAgent,
+  findLlmProfile,
+  getDefaultLlmProfile,
+  normalizeAgentForRuntime,
+  resolveRuntimeType,
+  validateLlmBinding,
+} from './agentEditorUtils'
 
 const { Option } = Select
-
-const PROVIDERS = [
-  { value: 'anthropic', label: 'Anthropic (Claude)' },
-  { value: 'openai', label: 'OpenAI (GPT)' },
-  { value: 'openai_compat', label: '兼容 OpenAI 协议（DeepSeek / Moonshot 等）' },
-]
-const PRESET_MODELS = {
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-}
-const DEFAULT_CODEX_MODEL = ''
-const DEFAULT_CODEX_MODEL_PLACEHOLDER = '留空则使用 Codex CLI 默认模型'
-const MODEL_RUNTIME_OPTIONS = [
-  { value: 'llm', label: 'LLM' },
-  { value: 'codex', label: 'Codex' },
-]
-
-function resolveLlmProvider(workspaceDefaults, currentProvider = '') {
-  const workspaceProvider = workspaceDefaults?.default_provider
-  if (PROVIDERS.some((item) => item.value === workspaceProvider)) {
-    return workspaceProvider
-  }
-  if (PROVIDERS.some((item) => item.value === currentProvider)) {
-    return currentProvider
-  }
-  return 'openai_compat'
-}
-
-function resolveLlmModel(provider, workspaceDefaults, currentModel = '') {
-  const model = String(currentModel || '').trim()
-  if (model) return model
-  const workspaceModel = String(workspaceDefaults?.default_model || '').trim()
-  if (workspaceDefaults?.default_provider === provider && workspaceModel) {
-    return workspaceModel
-  }
-  if (provider === 'anthropic') return PRESET_MODELS.anthropic[0]
-  if (provider === 'openai') return PRESET_MODELS.openai[0]
-  return workspaceModel || 'deepseek-reasoner'
-}
-
-function resolveRuntimeType(agent) {
-  return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
-}
-
-function normalizeAgentForRuntime(agent, workspaceDefaults) {
-  if (agent.provider === 'openai_codex') {
-    return {
-      ...agent,
-      llm_profile_id: '',
-      base_url: '',
-      api_key: '',
-    }
-  }
-  const provider = resolveLlmProvider(workspaceDefaults, agent.provider)
-  return {
-    ...agent,
-    provider,
-    model: resolveLlmModel(provider, workspaceDefaults, agent.model),
-    codex_connection_id: '',
-    llm_profile_id: '',
-  }
-}
-
-function applyRuntimeSelection(values, workspaceDefaults, runtimeTypeHint = '') {
-  const runtimeType = runtimeTypeHint || values.runtime_type || 'llm'
-  if (runtimeType === 'codex') {
-    return {
-      ...values,
-      provider: 'openai_codex',
-      model: String(values.model ?? '').trim(),
-    }
-  }
-  const llmProvider = resolveLlmProvider(workspaceDefaults, values.provider)
-  return {
-    ...values,
-    provider: llmProvider,
-    model: resolveLlmModel(llmProvider, workspaceDefaults, values.model),
-  }
-}
 // ── 自定义节点 ────────────────────────────────────────────────
 function AgentNode({ data, selected }) {
   const modelLabel = data.codex_connection_name || data.llm_profile_name || data.model
@@ -338,6 +271,11 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
     nodeForm.validateFields().then(() => {
       const runtimeType = nodeForm.getFieldValue('runtime_type')
       const vals = applyRuntimeSelection(nodeForm.getFieldsValue(true), workspaceDefaults, runtimeType)
+      const bindingError = validateLlmBinding(vals, workspaceDefaults)
+      if (bindingError) {
+        message.error(bindingError)
+        return
+      }
       const currentNode = nodes.find(n => n.id === nodeModal.nodeId)
       const currentData = currentNode?.data ?? {}
       const nextData = normalizeAgentForRuntime({
@@ -345,6 +283,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         ...vals,
       }, workspaceDefaults)
       delete nextData.runtime_type
+      const llmProfile = findLlmProfile(workspaceDefaults, nextData.llm_profile_id)
       const codexConnection = codexConnections.find(item => item.id === vals.codex_connection_id)
       setNodes(ns => ns.map(n =>
         n.id === nodeModal.nodeId
@@ -352,7 +291,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
             ...n,
             data: {
               ...nextData,
-              llm_profile_name: '',
+              llm_profile_name: llmProfile?.name ?? '',
               codex_connection_name: codexConnection?.name ?? '',
             },
           }
@@ -380,13 +319,14 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
     const values = nodeForm.getFieldsValue()
     setOptimizingPrompt(true)
     try {
+      const llmProfile = findLlmProfile(workspaceDefaults, values.llm_profile_id)
       const result = await graphApi.optimizePrompt({
         name: values.name,
         system_prompt: values.system_prompt ?? '',
         goal: promptOptimizer.goal,
         workspace_id: effectiveWorkspaceId,
-        provider: values.provider ?? workspaceDefaults?.default_provider ?? 'anthropic',
-        model: values.model ?? workspaceDefaults?.default_model ?? 'claude-sonnet-4-6',
+        provider: values.provider ?? llmProfile?.provider ?? 'anthropic',
+        model: values.model ?? llmProfile?.model ?? '',
         temperature: 0.2,
         max_tokens: values.max_tokens ?? 4096,
         tools: values.tools ?? [],
@@ -425,6 +365,7 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
     const targetData = context.targetNode?.data ?? {}
     setOptimizingEdgePrompt(true)
     try {
+      const llmProfile = findLlmProfile(workspaceDefaults, targetData.llm_profile_id)
       const result = await graphApi.optimizePrompt({
         name: targetData.name ?? '未命名 Agent',
         system_prompt: edgeEdit.prompt ?? '',
@@ -434,8 +375,8 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
         source_name: context.sourceNode?.data?.name ?? '',
         target_name: targetData.name ?? '',
         artifact: edgeEdit.artifact ?? '',
-        provider: targetData.provider ?? workspaceDefaults?.default_provider ?? 'anthropic',
-        model: targetData.model ?? workspaceDefaults?.default_model ?? 'claude-sonnet-4-6',
+        provider: targetData.provider ?? llmProfile?.provider ?? 'anthropic',
+        model: targetData.model ?? llmProfile?.model ?? '',
         temperature: 0.2,
         max_tokens: targetData.max_tokens ?? 4096,
         tools: targetData.tools ?? [],
@@ -459,7 +400,8 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
   // 添加新节点（继承 Workspace 默认值）
   const addNode = () => {
     const id = `node_${Date.now()}`
-    const defaults = workspaceDefaults ?? {}
+    const defaults = emptyAgent(workspaceDefaults, 'worker')
+    const defaultProfile = findLlmProfile(workspaceDefaults, defaults.llm_profile_id)
     const newNode = {
       id,
       type: 'agent',
@@ -467,19 +409,19 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
       data: {
         id,
         name: '新 Agent',
-        llm_profile_id: llmProfiles[0]?.id ?? '',
-        llm_profile_name: llmProfiles[0]?.name ?? '',
+        llm_profile_id: defaults.llm_profile_id,
+        llm_profile_name: defaultProfile?.name ?? '',
         codex_connection_id: '',
         codex_connection_name: '',
-        provider: defaults.default_provider ?? 'anthropic',
-        model: defaults.default_model ?? 'claude-sonnet-4-6',
-        base_url: defaults.default_base_url ?? '',
-        api_key: defaults.default_api_key ?? '',
+        provider: defaults.provider,
+        model: defaults.model,
+        base_url: defaults.base_url,
+        api_key: defaults.api_key,
         system_prompt: '你是一个助手。',
-        temperature: 0.7,
-        max_tokens: 4096,
-        tools: [],
-        work_subdir: '',
+        temperature: defaults.temperature,
+        max_tokens: defaults.max_tokens,
+        tools: defaults.tools,
+        work_subdir: defaults.work_subdir,
       },
     }
     setNodes(ns => [...ns, newNode])
@@ -493,6 +435,13 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
     if (nodes.length === 0) { message.warning('至少需要一个节点'); return }
 
     if (!effectiveWorkspaceId) { message.warning('请先在 Workspace 下创建或选择智能体'); return }
+    const invalidAgent = nodes
+      .map(n => n.data)
+      .find(agent => validateLlmBinding(agent, workspaceDefaults))
+    if (invalidAgent) {
+      message.error(validateLlmBinding(invalidAgent, workspaceDefaults))
+      return
+    }
 
     const payload = {
       name: graphName,
@@ -587,12 +536,13 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
                   })
                   return
                 }
-                const nextProvider = resolveLlmProvider(workspaceDefaults, nodeForm.getFieldValue('provider'))
+                const defaultProfile = getDefaultLlmProfile(workspaceDefaults)
                 nodeForm.setFieldsValue({
-                  provider: nextProvider,
-                  model: resolveLlmModel(nextProvider, workspaceDefaults, nodeForm.getFieldValue('model')),
+                  provider: defaultProfile?.provider ?? 'anthropic',
+                  model: defaultProfile?.model ?? '',
                   codex_connection_id: '',
-                  llm_profile_id: '',
+                  llm_profile_id: defaultProfile?.id ?? '',
+                  base_url: defaultProfile?.base_url ?? '',
                 })
               }}
             />
@@ -632,58 +582,64 @@ export default function AgentDesigner({ graph, workspaceId, workspaceDefaults, o
                   </>
                 )
               }
-              const provider = getFieldValue('provider')
+              const selectedProfile = findLlmProfile(workspaceDefaults, getFieldValue('llm_profile_id'))
               return (
                 <>
-                  <>
-                    <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
-                      <Select
-                        onChange={(nextProvider) => {
-                          const currentModel = nodeForm.getFieldValue('model')
-                          const presetModels = PRESET_MODELS[nextProvider] ?? []
-                          const shouldResetModel = !currentModel || (
-                            nextProvider !== 'openai_compat' && !presetModels.includes(currentModel)
-                          )
-                          if (shouldResetModel) {
-                            nodeForm.setFieldValue('model', resolveLlmModel(nextProvider, workspaceDefaults, ''))
-                          }
-                        }}
-                      >
-                        {PROVIDERS.map(p => <Option key={p.value} value={p.value}>{p.label}</Option>)}
-                      </Select>
-                    </Form.Item>
+                  <Form.Item
+                    name="llm_profile_id"
+                    label="API Provider"
+                    rules={[{ required: true, message: '请选择 API Provider' }]}
+                  >
+                    <Select
+                      allowClear
+                      placeholder={llmProfiles.length ? '选择共享 API Provider' : '当前还没有 API Provider'}
+                      onChange={(profileId) => {
+                        const profile = findLlmProfile(workspaceDefaults, profileId)
+                        nodeForm.setFieldsValue({
+                          provider: profile?.provider ?? 'anthropic',
+                          model: profile?.model ?? '',
+                          base_url: profile?.base_url ?? '',
+                        })
+                      }}
+                    >
+                      {llmProfiles.map((profile) => (
+                        <Option key={profile.id} value={profile.id}>{profile.name}</Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
 
-                    <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                      {provider === 'openai_compat' ? (
-                        <Input placeholder="例如：deepseek-chat" />
-                      ) : (
-                        <Select>
-                          {(PRESET_MODELS[provider] ?? []).map(m =>
-                            <Option key={m} value={m}>{m}</Option>
-                          )}
-                        </Select>
-                      )}
-                    </Form.Item>
+                  {!llmProfiles.length ? (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="当前还没有 API Provider"
+                      description="请先到“全局模型连接 -> API Providers”里新增至少一个 Provider，再回来绑定当前 Agent。"
+                    />
+                  ) : null}
 
-                    {provider === 'openai_compat' && (
-                      <>
-                        <Form.Item
-                          name="base_url"
-                          label="Base URL"
-                          rules={[{ required: true, message: '请输入 base_url' }]}
-                        >
-                          <Input placeholder="https://api.deepseek.com/v1" />
-                        </Form.Item>
-                        <Form.Item
-                          name="api_key"
-                          label="API Key（选填）"
-                          extra="留空则使用 Workspace 或环境变量中的 key"
-                        >
-                          <Input.Password placeholder="sk-..." />
-                        </Form.Item>
-                      </>
-                    )}
-                  </>
+                  {selectedProfile ? (
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message={selectedProfile.name}
+                      description={`模型：${selectedProfile.model}${selectedProfile.base_url ? `；URL：${selectedProfile.base_url}` : ''}`}
+                    />
+                  ) : null}
+
+                  <Form.Item name="provider" hidden>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="model" hidden>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="base_url" hidden>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item name="api_key" hidden>
+                    <Input.Password />
+                  </Form.Item>
                 </>
               )
             }}

@@ -62,9 +62,14 @@ describe('AgentDesigner', () => {
         graph={null}
         workspaceId="ws-1"
         workspaceDefaults={{
-          default_provider: 'anthropic',
-          default_model: 'claude-sonnet-4-6',
-          llm_profiles: [],
+          llm_profiles: [{
+            id: 'llm-1',
+            name: 'Claude 主力',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-6',
+            base_url: '',
+            api_key: '',
+          }],
           codex_connections: [{ id: 'codex-1', name: '个人 Codex' }],
         }}
       />,
@@ -75,7 +80,7 @@ describe('AgentDesigner', () => {
     expect(await screen.findByText('编辑 Agent')).toBeInTheDocument()
     expect(screen.getByLabelText('模型类型')).toBeInTheDocument()
     expect(screen.queryByLabelText('Codex 登录连接')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Provider')).toBeInTheDocument()
+    expect(screen.getByLabelText('API Provider')).toBeInTheDocument()
     expect(screen.queryByText('通用 LLM 配置')).not.toBeInTheDocument()
 
     fireEvent.mouseDown(screen.getByLabelText('模型类型'))

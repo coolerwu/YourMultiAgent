@@ -113,9 +113,6 @@ async def test_save_and_find_by_id(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
     await store.save_global_settings(
         GlobalSettingsEntity(
-            default_provider=LLMProvider.OPENAI_COMPAT,
-            default_model="deepseek-chat",
-            default_base_url="https://api.deepseek.com/v1",
             llm_profiles=[
                 LLMProfileEntity(
                     id="llm-1",
@@ -150,9 +147,6 @@ async def test_enum_roundtrip(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
     await store.save_global_settings(
         GlobalSettingsEntity(
-            default_provider=LLMProvider.OPENAI_COMPAT,
-            default_model="deepseek-chat",
-            default_base_url="https://api.deepseek.com/v1",
             llm_profiles=[
                 LLMProfileEntity(
                     id="llm-1",
@@ -176,8 +170,6 @@ async def test_enum_roundtrip(tmp_path):
 
     store2 = JsonWorkspaceStore(tmp_path)
     result = await store2.find_by_id("ws-1")
-    assert result.default_provider == LLMProvider.OPENAI_COMPAT
-    assert result.default_base_url == "https://api.deepseek.com/v1"
     assert result.llm_profiles[0].name == "DeepSeek"
     assert result.codex_connections[0].name == "个人 Codex"
     assert result.coordinator.name == "主控智能体"
@@ -192,7 +184,7 @@ async def test_enum_roundtrip(tmp_path):
 @pytest.mark.asyncio
 async def test_data_persists(tmp_path):
     store1 = JsonWorkspaceStore(tmp_path)
-    await store1.save_global_settings(GlobalSettingsEntity(default_provider=LLMProvider.OPENAI, default_model="gpt-4o"))
+    await store1.save_global_settings(GlobalSettingsEntity())
     await store1.save(_make_ws("ws-persist"))
 
     store2 = JsonWorkspaceStore(tmp_path)
@@ -275,7 +267,7 @@ async def test_migrates_legacy_global_json_files(tmp_path):
     payload = json.loads(workspace_file_path(tmp_path, "Legacy-WS").read_text(encoding="utf-8"))
     assert payload["graphs"][0]["name"] == "Legacy Graph"
     settings_payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
-    assert settings_payload["global_settings"]["default_provider"] == "anthropic"
+    assert settings_payload["global_settings"]["llm_profiles"] == []
 
 
 @pytest.mark.asyncio
@@ -283,8 +275,6 @@ async def test_setting_json_persists_global_provider_settings(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
     saved = await store.save_global_settings(
         GlobalSettingsEntity(
-            default_provider=LLMProvider.OPENAI,
-            default_model="gpt-4o",
             llm_profiles=[
                 LLMProfileEntity(
                     id="llm-1",
@@ -305,9 +295,8 @@ async def test_setting_json_persists_global_provider_settings(tmp_path):
 
     loaded = await store.load_global_settings()
 
-    assert saved.default_provider == LLMProvider.OPENAI
     assert loaded.llm_profiles[0].name == "共享 GPT"
     assert loaded.codex_connections[0].name == "个人 Codex"
     payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
-    assert payload["global_settings"]["default_model"] == "gpt-4o"
+    assert payload["global_settings"]["llm_profiles"][0]["model"] == "gpt-4o-mini"
     assert payload["global_settings"]["codex_connections"][0]["name"] == "个人 Codex"

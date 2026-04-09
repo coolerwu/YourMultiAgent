@@ -132,10 +132,6 @@ class CodexConnectionEntity:
 @dataclass
 class GlobalSettingsEntity:
     """全局共享设置：当前主要承载 Provider / LLM 配置。"""
-    default_provider: LLMProvider = LLMProvider.ANTHROPIC
-    default_model: str = "claude-sonnet-4-6"
-    default_base_url: str = ""
-    default_api_key: str = ""
     llm_profiles: list[LLMProfileEntity] = field(default_factory=list)
     codex_connections: list[CodexConnectionEntity] = field(default_factory=list)
 

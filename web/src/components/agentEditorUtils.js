@@ -16,36 +16,36 @@ export const MODEL_RUNTIME_OPTIONS = [
   { value: 'codex', label: 'Codex' },
 ]
 
-export function resolveLlmProvider(workspace, currentProvider = '') {
-  const workspaceProvider = workspace?.default_provider
-  if (PROVIDERS.some((item) => item.value === workspaceProvider)) {
-    return workspaceProvider
+export function buildProviderName(model = '', baseUrl = '') {
+  const normalizedModel = String(model || '').trim()
+  const normalizedBaseUrl = String(baseUrl || '').trim()
+  if (normalizedModel && normalizedBaseUrl) {
+    return `${normalizedModel} + ${normalizedBaseUrl}`
   }
-  if (PROVIDERS.some((item) => item.value === currentProvider)) {
-    return currentProvider
-  }
-  return 'openai_compat'
+  return normalizedModel || normalizedBaseUrl || '新 API Provider'
 }
 
-export function resolveLlmModel(provider, workspace, currentModel = '') {
-  const model = String(currentModel || '').trim()
-  if (model) return model
-  const workspaceModel = String(workspace?.default_model || '').trim()
-  if (workspace?.default_provider === provider && workspaceModel) {
-    return workspaceModel
-  }
-  if (provider === 'anthropic') return PRESET_MODELS.anthropic[0]
-  if (provider === 'openai') return PRESET_MODELS.openai[0]
-  return workspaceModel || 'deepseek-reasoner'
+export function getDefaultLlmProfile(workspace) {
+  return workspace?.llm_profiles?.[0] ?? null
+}
+
+export function findLlmProfile(workspace, profileId) {
+  if (!profileId) return null
+  return workspace?.llm_profiles?.find((item) => item.id === profileId) ?? null
+}
+
+export function resolveRuntimeType(agent) {
+  return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
 }
 
 export function emptyAgent(defaults, role) {
   const isChat = defaults?.kind === 'chat'
+  const defaultProfile = getDefaultLlmProfile(defaults)
   return {
     id: `${role}_${Date.now()}`,
     name: role === 'coordinator' ? (isChat ? '单聊助手' : '主控智能体') : '新 Worker',
-    provider: defaults?.default_provider ?? 'anthropic',
-    model: defaults?.default_model ?? 'claude-sonnet-4-6',
+    provider: defaultProfile?.provider ?? 'anthropic',
+    model: defaultProfile?.model ?? 'claude-sonnet-4-6',
     system_prompt: role === 'coordinator'
       ? (
         isChat
@@ -56,9 +56,9 @@ export function emptyAgent(defaults, role) {
     temperature: 0.7,
     max_tokens: 4096,
     tools: [],
-    llm_profile_id: '',
+    llm_profile_id: defaultProfile?.id ?? '',
     codex_connection_id: '',
-    base_url: '',
+    base_url: defaultProfile?.base_url ?? '',
     api_key: '',
     work_subdir: role === 'coordinator' ? (isChat ? '' : 'coordinator') : '',
     order: 0,
@@ -77,10 +77,6 @@ export function normalizeWorkerOrder(items = []) {
   return items.map((item, index) => ({ ...item, order: index + 1 }))
 }
 
-export function resolveRuntimeType(agent) {
-  return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
-}
-
 export function normalizeAgentForRuntime(agent, workspace) {
   if (agent.provider === 'openai_codex') {
     return {
@@ -90,13 +86,19 @@ export function normalizeAgentForRuntime(agent, workspace) {
       api_key: '',
     }
   }
-  const provider = resolveLlmProvider(workspace, agent.provider)
+  const profile = findLlmProfile(workspace, agent.llm_profile_id)
+  if (profile) {
+    return {
+      ...agent,
+      provider: profile.provider,
+      model: profile.model,
+      base_url: profile.base_url ?? '',
+      codex_connection_id: '',
+    }
+  }
   return {
     ...agent,
-    provider,
-    model: resolveLlmModel(provider, workspace, agent.model),
     codex_connection_id: '',
-    llm_profile_id: '',
   }
 }
 
@@ -116,13 +118,46 @@ export function applyRuntimeSelection(values, workspace, runtimeTypeHint = '') {
     return {
       ...values,
       provider: 'openai_codex',
+      llm_profile_id: '',
       model: String(values.model ?? '').trim(),
+      base_url: '',
+      api_key: '',
     }
   }
-  const llmProvider = resolveLlmProvider(workspace, values.provider)
+
+  const profile = findLlmProfile(workspace, values.llm_profile_id)
+  if (profile) {
+    return {
+      ...values,
+      provider: profile.provider,
+      model: profile.model,
+      base_url: profile.base_url ?? '',
+      api_key: String(values.api_key ?? '').trim(),
+    }
+  }
+
   return {
     ...values,
-    provider: llmProvider,
-    model: resolveLlmModel(llmProvider, workspace, values.model),
+    provider: values.provider || 'anthropic',
+    model: String(values.model ?? '').trim(),
+    base_url: String(values.base_url ?? '').trim(),
+    api_key: String(values.api_key ?? '').trim(),
   }
+}
+
+export function resolveLlmDisplay(agent, workspace) {
+  const profile = findLlmProfile(workspace, agent?.llm_profile_id)
+  if (profile) {
+    return profile.name || buildProviderName(profile.model, profile.base_url)
+  }
+  return agent?.model || '-'
+}
+
+export function validateLlmBinding(agent, workspace) {
+  if (!agent || agent.provider === 'openai_codex') return null
+  if (agent.llm_profile_id) return null
+  if (!workspace?.llm_profiles?.length) {
+    return '请先在全局模型连接中添加至少一个 API Provider'
+  }
+  return `${agent.name || '当前角色'} 尚未绑定 API Provider`
 }

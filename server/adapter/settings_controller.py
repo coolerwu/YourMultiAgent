@@ -45,10 +45,6 @@ class CodexConnectionReq(BaseModel):
 
 
 class GlobalSettingsReq(BaseModel):
-    default_provider: LLMProvider = LLMProvider.ANTHROPIC
-    default_model: str = "claude-sonnet-4-6"
-    default_base_url: str = ""
-    default_api_key: str = ""
     llm_profiles: list[LLMProfileReq] = Field(default_factory=list)
     codex_connections: list[CodexConnectionReq] = Field(default_factory=list)
 
@@ -69,10 +65,6 @@ async def update_provider_settings(
     svc: WorkspaceAppService = Depends(get_workspace_service),
 ):
     settings = GlobalSettingsEntity(
-        default_provider=req.default_provider,
-        default_model=req.default_model,
-        default_base_url=req.default_base_url,
-        default_api_key=req.default_api_key,
         llm_profiles=[
             LLMProfileEntity(
                 id=item.id,

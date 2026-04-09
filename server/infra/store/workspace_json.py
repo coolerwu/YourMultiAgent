@@ -80,10 +80,6 @@ def load_global_settings(data_dir: Path) -> GlobalSettingsEntity:
     if not isinstance(settings, dict):
         settings = {}
     return GlobalSettingsEntity(
-        default_provider=LLMProvider(settings.get("default_provider", "anthropic")),
-        default_model=settings.get("default_model", "claude-sonnet-4-6"),
-        default_base_url=settings.get("default_base_url", ""),
-        default_api_key=settings.get("default_api_key", ""),
         llm_profiles=[
             LLMProfileEntity(
                 id=p["id"],
@@ -126,10 +122,6 @@ def save_global_settings(data_dir: Path, settings: GlobalSettingsEntity) -> None
         raw = {"version": 2, "workspaces": []}
     raw["version"] = 2
     raw["global_settings"] = {
-        "default_provider": settings.default_provider,
-        "default_model": settings.default_model,
-        "default_base_url": settings.default_base_url,
-        "default_api_key": settings.default_api_key,
         "llm_profiles": [dataclasses.asdict(profile) for profile in settings.llm_profiles],
         "codex_connections": [dataclasses.asdict(item) for item in settings.codex_connections],
     }

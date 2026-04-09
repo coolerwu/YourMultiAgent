@@ -1,6 +1,6 @@
 import pytest
 
-from server.domain.agent.agent_entity import AgentEntity, CodexConnectionEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.agent_entity import AgentEntity, CodexConnectionEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity, WorkspaceKind
 from server.infra.llm.codex_cli_adapter import CodexCLIAdapter
 from server.infra.llm.llm_factory import LangChainLLMFactory, _resolve_llm_config
 
@@ -100,22 +100,29 @@ def test_llm_factory_rejects_unlogged_codex(monkeypatch):
         factory.build(agent, workspace)
 
 
-def test_resolve_llm_config_falls_back_to_workspace_defaults():
+def test_resolve_llm_config_prefers_bound_llm_profile():
     workspace = WorkspaceEntity(
         id="ws-1",
         name="demo",
         work_dir="/tmp/demo",
-        default_provider=LLMProvider.OPENAI_COMPAT,
-        default_model="deepseek-chat",
-        default_base_url="https://api.deepseek.com/v1",
-        default_api_key="sk-demo",
+        llm_profiles=[
+            LLMProfileEntity(
+                id="profile-1",
+                name="DeepSeek",
+                provider=LLMProvider.OPENAI_COMPAT,
+                model="deepseek-chat",
+                base_url="https://api.deepseek.com/v1",
+                api_key="sk-demo",
+            )
+        ],
     )
     agent = AgentEntity(
         id="agent-1",
-        name="单聊助手",
+        name="主控",
         provider=LLMProvider.OPENAI_COMPAT,
-        model="deepseek-chat",
-        system_prompt="你是助手",
+        model="",
+        system_prompt="你是主控",
+        llm_profile_id="profile-1",
         base_url="",
         api_key="",
     )
@@ -193,8 +200,6 @@ def test_resolve_llm_config_ignores_stale_codex_connection_when_provider_is_llm(
         id="ws-1",
         name="demo",
         work_dir="/tmp/demo",
-        default_provider=LLMProvider.ANTHROPIC,
-        default_model="claude-sonnet-4-6",
         codex_connections=[
             CodexConnectionEntity(
                 id="codex-1",
@@ -215,6 +220,6 @@ def test_resolve_llm_config_ignores_stale_codex_connection_when_provider_is_llm(
     provider, model, base_url, api_key = _resolve_llm_config(agent, workspace)
 
     assert provider == LLMProvider.ANTHROPIC
-    assert model == "claude-sonnet-4-6"
+    assert model == ""
     assert base_url == ""
     assert api_key == ""

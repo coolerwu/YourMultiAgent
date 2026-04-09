@@ -75,9 +75,14 @@ describe('Dashboard', () => {
         name: '单聊示例',
         dir_name: 'chat-demo',
         work_dir: '/tmp/chat-demo',
-        default_provider: 'anthropic',
-        default_model: 'claude-sonnet-4-6',
-        llm_profiles: [],
+        llm_profiles: [{
+          id: 'llm-1',
+          name: 'Claude 主力',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-6',
+          base_url: '',
+          api_key: '',
+        }],
         codex_connections: [],
         coordinator: { id: 'chat', name: '单聊助手' },
       },
@@ -92,7 +97,7 @@ describe('Dashboard', () => {
         temperature: 0.7,
         max_tokens: 4096,
         tools: [],
-        llm_profile_id: '',
+        llm_profile_id: 'llm-1',
         codex_connection_id: '',
         base_url: '',
         api_key: '',
@@ -103,10 +108,6 @@ describe('Dashboard', () => {
     })
     workspaceApiMock.listSessions.mockResolvedValue([])
     workspaceApiMock.getProviderSettings.mockResolvedValue({
-      default_provider: 'anthropic',
-      default_model: 'claude-sonnet-4-6',
-      default_base_url: '',
-      default_api_key: '',
       llm_profiles: [],
       codex_connections: [],
     })

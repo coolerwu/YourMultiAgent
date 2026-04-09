@@ -1,17 +1,15 @@
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { graphApi } from '../utils/graphApi'
 import {
   applyRuntimeSelection,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_MODEL_PLACEHOLDER,
+  findLlmProfile,
+  getDefaultLlmProfile,
   MODEL_RUNTIME_OPTIONS,
   normalizeAgentForRuntime,
   normalizeAgentForWorkspace,
-  PRESET_MODELS,
-  PROVIDERS,
-  resolveLlmModel,
-  resolveLlmProvider,
   resolveRuntimeType,
 } from './agentEditorUtils'
 
@@ -43,6 +41,7 @@ export default function AgentEditorPanel({
   })
 
   const panelTitle = useMemo(() => buildPanelTitle(role, workspace), [role, workspace])
+  const llmProfiles = workspace?.llm_profiles ?? []
   const normalizedAgent = useMemo(
     () => normalizeAgentForWorkspace(normalizeAgentForRuntime(agent, workspace), workspace, role),
     [agent, role, workspace],
@@ -88,8 +87,8 @@ export default function AgentEditorPanel({
         system_prompt: values.system_prompt ?? '',
         goal: promptOptimizer.goal,
         workspace_id: workspace?.id ?? '',
-        provider: values.provider ?? workspace?.default_provider ?? 'anthropic',
-        model: values.model ?? workspace?.default_model ?? 'claude-sonnet-4-6',
+        provider: values.provider ?? 'anthropic',
+        model: values.model ?? '',
         temperature: 0.2,
         max_tokens: values.max_tokens ?? 4096,
         tools: values.tools ?? [],
@@ -149,12 +148,13 @@ export default function AgentEditorPanel({
                   })
                   return
                 }
-                const nextProvider = resolveLlmProvider(workspace, form.getFieldValue('provider'))
+                const defaultProfile = getDefaultLlmProfile(workspace)
                 form.setFieldsValue({
-                  provider: nextProvider,
-                  model: resolveLlmModel(nextProvider, workspace, form.getFieldValue('model')),
+                  provider: defaultProfile?.provider ?? 'anthropic',
+                  model: defaultProfile?.model ?? '',
+                  base_url: defaultProfile?.base_url ?? '',
                   codex_connection_id: '',
-                  llm_profile_id: '',
+                  llm_profile_id: defaultProfile?.id ?? '',
                 })
               }}
             />
@@ -162,7 +162,7 @@ export default function AgentEditorPanel({
           <Form.Item noStyle shouldUpdate={(prev, cur) => (
             prev.runtime_type !== cur.runtime_type
             || prev.codex_connection_id !== cur.codex_connection_id
-            || prev.provider !== cur.provider
+            || prev.llm_profile_id !== cur.llm_profile_id
           )}>
             {({ getFieldValue }) => {
               const runtimeType = getFieldValue('runtime_type') ?? 'llm'
@@ -189,40 +189,52 @@ export default function AgentEditorPanel({
                   </>
                 )
               }
-              const provider = getFieldValue('provider')
+              const selectedProfile = findLlmProfile(workspace, getFieldValue('llm_profile_id'))
               return (
                 <>
-                  <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+                  <Form.Item name="llm_profile_id" label="API Provider" rules={[{ required: true, message: '请选择 API Provider' }]}>
                     <Select
-                      onChange={(nextProvider) => {
-                        const currentModel = form.getFieldValue('model')
-                        const presetModels = PRESET_MODELS[nextProvider] ?? []
-                        const shouldResetModel = !currentModel || (
-                          nextProvider !== 'openai_compat' && !presetModels.includes(currentModel)
-                        )
-                        if (shouldResetModel) {
-                          form.setFieldValue('model', resolveLlmModel(nextProvider, workspace, ''))
-                        }
+                      placeholder={llmProfiles.length ? '选择共享 API Provider' : '当前还没有 API Provider'}
+                      onChange={(profileId) => {
+                        const profile = findLlmProfile(workspace, profileId)
+                        if (!profile) return
+                        form.setFieldsValue({
+                          provider: profile.provider,
+                          model: profile.model,
+                          base_url: profile.base_url ?? '',
+                          api_key: '',
+                        })
                       }}
                     >
-                      {PROVIDERS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
+                      {llmProfiles.map((profile) => <Option key={profile.id} value={profile.id}>{profile.name}</Option>)}
                     </Select>
                   </Form.Item>
-                  <Form.Item name="model" label="模型" rules={[{ required: true }]}>
-                    {provider === 'openai_compat'
-                      ? <Input placeholder="例如：deepseek-chat" />
-                      : (
-                        <Select>
-                          {(PRESET_MODELS[provider] ?? []).map((model) => (
-                            <Option key={model} value={model}>{model}</Option>
-                          ))}
-                        </Select>
-                      )}
-                  </Form.Item>
+                  {llmProfiles.length === 0 ? (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="当前还没有 API Provider"
+                      description="请先到“全局模型连接 -> API Providers”里新增至少一个 Provider，再回来绑定当前角色。"
+                    />
+                  ) : null}
+                  {selectedProfile ? (
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message={selectedProfile.name}
+                      description={`模型：${selectedProfile.model || '-'}；URL：${selectedProfile.base_url || '官方默认入口'}`}
+                    />
+                  ) : null}
                 </>
               )
             }}
           </Form.Item>
+          <Form.Item name="provider" hidden><Input /></Form.Item>
+          <Form.Item name="model" hidden><Input /></Form.Item>
+          <Form.Item name="base_url" hidden><Input /></Form.Item>
+          <Form.Item name="api_key" hidden><Input /></Form.Item>
           <Form.Item
             name="system_prompt"
             label={(

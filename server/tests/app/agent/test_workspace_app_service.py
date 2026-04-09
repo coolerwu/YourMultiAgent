@@ -15,7 +15,7 @@ from server.app.agent.workspace_app_service import (
     WorkspaceAppService,
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
-from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
 from server.domain.agent.agent_entity import WorkspaceKind
 
 
@@ -50,6 +50,16 @@ def _sample_create_cmd() -> CreateWorkspaceCmd:
 @pytest.mark.asyncio
 async def test_create_workspace_calls_save():
     gw = _make_gateway()
+    gw.load_global_settings.return_value = GlobalSettingsEntity(
+        llm_profiles=[
+            LLMProfileEntity(
+                id="llm-1",
+                name="共享 GPT",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o-mini",
+            )
+        ],
+    )
     svc = WorkspaceAppService(gw)
     ws = await svc.create_workspace(_sample_create_cmd())
     gw.save.assert_awaited_once()
@@ -57,12 +67,23 @@ async def test_create_workspace_calls_save():
     assert ws.llm_profiles[0].name == "共享 GPT"
     assert ws.coordinator is not None
     assert ws.coordinator.name == "主控智能体"
+    assert ws.coordinator.llm_profile_id == "llm-1"
     assert ws.kind == WorkspaceKind.WORKSPACE
 
 
 @pytest.mark.asyncio
 async def test_create_workspace_uses_default_work_dir_when_empty():
     gw = _make_gateway()
+    gw.load_global_settings.return_value = GlobalSettingsEntity(
+        llm_profiles=[
+            LLMProfileEntity(
+                id="llm-1",
+                name="共享 GPT",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o-mini",
+            )
+        ],
+    )
     svc = WorkspaceAppService(gw)
     cmd = _sample_create_cmd()
     cmd.work_dir = ""
@@ -73,6 +94,16 @@ async def test_create_workspace_uses_default_work_dir_when_empty():
 @pytest.mark.asyncio
 async def test_create_chat_workspace_uses_dir_name_and_chat_agent():
     gw = _make_gateway()
+    gw.load_global_settings.return_value = GlobalSettingsEntity(
+        llm_profiles=[
+            LLMProfileEntity(
+                id="llm-1",
+                name="共享 GPT",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o-mini",
+            )
+        ],
+    )
     svc = WorkspaceAppService(gw)
     cmd = _sample_create_cmd()
     cmd.kind = WorkspaceKind.CHAT
@@ -87,11 +118,22 @@ async def test_create_chat_workspace_uses_dir_name_and_chat_agent():
     assert ws.coordinator is not None
     assert ws.coordinator.name == "单聊助手"
     assert ws.coordinator.work_subdir == ""
+    assert ws.coordinator.llm_profile_id == "llm-1"
 
 
 @pytest.mark.asyncio
 async def test_create_workspace_generates_id():
     gw = _make_gateway()
+    gw.load_global_settings.return_value = GlobalSettingsEntity(
+        llm_profiles=[
+            LLMProfileEntity(
+                id="llm-1",
+                name="共享 GPT",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o-mini",
+            )
+        ],
+    )
     svc = WorkspaceAppService(gw)
     ws1 = await svc.create_workspace(_sample_create_cmd())
     ws2 = await svc.create_workspace(_sample_create_cmd())
@@ -102,6 +144,16 @@ async def test_create_workspace_generates_id():
 async def test_update_workspace():
     existing = WorkspaceEntity(id="ws-42", name="Old", work_dir="~/old")
     gw = _make_gateway(existing)
+    gw.load_global_settings.return_value = GlobalSettingsEntity(
+        llm_profiles=[
+            LLMProfileEntity(
+                id="llm-1",
+                name="共享 GPT",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o-mini",
+            )
+        ],
+    )
     svc = WorkspaceAppService(gw)
     cmd = UpdateWorkspaceCmd(
         workspace_id="ws-42",
@@ -126,6 +178,20 @@ async def test_update_orchestration_updates_coordinator_and_workers():
         default_provider=LLMProvider.OPENAI_COMPAT,
         default_model="deepseek-reasoner",
         default_base_url="https://api.deepseek.com/v1",
+        llm_profiles=[
+            LLMProfileEntity(
+                id="profile-1",
+                name="Claude 主力",
+                provider=LLMProvider.ANTHROPIC,
+                model="claude-sonnet-4-6",
+            ),
+            LLMProfileEntity(
+                id="profile-2",
+                name="GPT 主力",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o",
+            ),
+        ],
     )
     gw = _make_gateway(existing)
     svc = WorkspaceAppService(gw)
@@ -139,6 +205,7 @@ async def test_update_orchestration_updates_coordinator_and_workers():
                 provider=LLMProvider.ANTHROPIC,
                 model="claude-sonnet-4-6",
                 system_prompt="你是主控",
+                llm_profile_id="profile-1",
             ),
             workers=[
                 AgentNodeCmd(
@@ -147,6 +214,7 @@ async def test_update_orchestration_updates_coordinator_and_workers():
                     provider=LLMProvider.OPENAI,
                     model="gpt-4o",
                     system_prompt="你是研发",
+                    llm_profile_id="profile-2",
                     order=2,
                 ),
                 AgentNodeCmd(
@@ -155,6 +223,7 @@ async def test_update_orchestration_updates_coordinator_and_workers():
                     provider=LLMProvider.OPENAI,
                     model="gpt-4o-mini",
                     system_prompt="你是测试",
+                    llm_profile_id="profile-2",
                     order=1,
                 )
             ],
@@ -162,8 +231,10 @@ async def test_update_orchestration_updates_coordinator_and_workers():
     )
 
     assert updated.coordinator.name == "主控"
+    assert updated.coordinator.llm_profile_id == "profile-1"
     assert updated.workers[0].name == "测试"
     assert updated.workers[0].order == 1
+    assert updated.workers[0].llm_profile_id == "profile-2"
     assert updated.workers[1].name == "研发"
     assert updated.workers[1].order == 2
 
@@ -265,8 +336,14 @@ async def test_update_global_settings_delegates_and_syncs_workspaces():
     svc = WorkspaceAppService(gw)
 
     settings = GlobalSettingsEntity(
-        default_provider=LLMProvider.OPENAI,
-        default_model="gpt-4o",
+        llm_profiles=[
+            LLMProfileEntity(
+                id="llm-1",
+                name="共享 GPT",
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o",
+            )
+        ],
         codex_connections=[
             CodexConnectionEntity(
                 id="codex-1",
@@ -278,7 +355,8 @@ async def test_update_global_settings_delegates_and_syncs_workspaces():
 
     saved = await svc.update_global_settings(settings)
 
-    assert saved.default_model == "gpt-4o"
+    assert saved.llm_profiles[0].model == "gpt-4o"
     gw.save_global_settings.assert_awaited_once()
     assert existing.default_model == "gpt-4o"
+    assert existing.llm_profiles[0].name == "共享 GPT"
     assert existing.codex_connections[0].name == "个人 Codex"

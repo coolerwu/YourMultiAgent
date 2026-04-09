@@ -170,10 +170,6 @@ class JsonWorkspaceStore(WorkspaceGateway):
         for ws_id, ws_payload in old_workspaces.items():
             if migrated_settings is None:
                 migrated_settings = {
-                    "default_provider": ws_payload.get("default_provider", "anthropic"),
-                    "default_model": ws_payload.get("default_model", "claude-sonnet-4-6"),
-                    "default_base_url": ws_payload.get("default_base_url", ""),
-                    "default_api_key": ws_payload.get("default_api_key", ""),
                     "llm_profiles": ws_payload.get("llm_profiles", []),
                     "codex_connections": ws_payload.get("codex_connections", []),
                 }
@@ -229,20 +225,12 @@ class JsonWorkspaceStore(WorkspaceGateway):
 
 
 def _apply_global_settings(ws: WorkspaceEntity, settings: GlobalSettingsEntity) -> None:
-    ws.default_provider = settings.default_provider
-    ws.default_model = settings.default_model
-    ws.default_base_url = settings.default_base_url
-    ws.default_api_key = settings.default_api_key
     ws.llm_profiles = list(settings.llm_profiles)
     ws.codex_connections = list(settings.codex_connections)
 
 
 def _global_settings_from_legacy(payload: dict) -> GlobalSettingsEntity:
     return GlobalSettingsEntity(
-        default_provider=LLMProvider(payload.get("default_provider", "anthropic")),
-        default_model=payload.get("default_model", "claude-sonnet-4-6"),
-        default_base_url=payload.get("default_base_url", ""),
-        default_api_key=payload.get("default_api_key", ""),
         llm_profiles=[
             LLMProfileEntity(
                 id=item.get("id", ""),
