@@ -232,7 +232,11 @@ export default function AgentEditorPanel({
             }}
           </Form.Item>
           <Form.Item name="provider" hidden><Input /></Form.Item>
-          <Form.Item name="model" hidden><Input /></Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.runtime_type !== cur.runtime_type}>
+            {({ getFieldValue }) => (
+              getFieldValue('runtime_type') !== 'codex' ? <Form.Item name="model" hidden><Input /></Form.Item> : null
+            )}
+          </Form.Item>
           <Form.Item name="base_url" hidden><Input /></Form.Item>
           <Form.Item name="api_key" hidden><Input /></Form.Item>
           <Form.Item

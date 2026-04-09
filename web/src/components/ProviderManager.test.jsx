@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import ProviderManager from './ProviderManager'
+import ProviderManager, { buildProviderSettingsPayload } from './ProviderManager'
 
 const { workspaceApiMock } = vi.hoisted(() => ({
   workspaceApiMock: {
@@ -75,5 +75,35 @@ describe('ProviderManager', () => {
     expect(screen.getByLabelText('Provider 类型')).toBeInTheDocument()
     expect(screen.getByLabelText('模型')).toBeInTheDocument()
     expect(screen.getByLabelText('URL')).toBeInTheDocument()
+  })
+
+  it('only submits editable codex config fields when saving', async () => {
+    const payload = buildProviderSettingsPayload({
+      llm_profiles: [],
+      codex_connections: [{
+        id: 'codex-1',
+        name: '个人 Codex',
+        status: 'connected',
+        login_status: 'connected',
+        install_status: 'installed',
+        account_label: 'ChatGPT',
+        install_path: '/usr/local/bin/codex',
+        provider: 'openai_codex',
+        auth_mode: 'chatgpt_codex_login',
+      }],
+    })
+
+    expect(payload).toEqual({
+      llm_profiles: [],
+      codex_connections: [{
+        id: 'codex-1',
+        name: '个人 Codex',
+        provider: 'openai_codex',
+        auth_mode: 'chatgpt_codex_login',
+      }],
+    })
+    expect(payload.codex_connections[0]).not.toHaveProperty('login_status')
+    expect(payload.codex_connections[0]).not.toHaveProperty('install_status')
+    expect(payload.codex_connections[0]).not.toHaveProperty('status')
   })
 })

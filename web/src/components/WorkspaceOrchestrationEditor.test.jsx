@@ -124,7 +124,7 @@ describe('WorkspaceOrchestrationEditor', () => {
       workers: [],
     })
 
-    render(
+    const { container } = render(
       <WorkspaceOrchestrationEditor
         workspace={{
           id: 'ws-chat',
@@ -137,8 +137,17 @@ describe('WorkspaceOrchestrationEditor', () => {
 
     expect(await screen.findByText('单聊说明')).toBeInTheDocument()
     expect(screen.getByLabelText('名称')).toHaveValue('单聊助手')
+    expect(screen.getByLabelText('API Provider')).toBeInTheDocument()
     expect(screen.getByText('当前目录根')).toBeInTheDocument()
     expect(screen.queryByLabelText('工作子目录')).not.toBeInTheDocument()
+
+    fireEvent.mouseDown(screen.getByLabelText('模型类型'))
+    fireEvent.click(await screen.findByText('Codex'))
+
+    expect(await screen.findByLabelText('Codex 模型')).toBeInTheDocument()
+    const ids = [...container.querySelectorAll('[id]')].map((element) => element.id).filter(Boolean)
+    const duplicateIds = ids.filter((id, index) => ids.indexOf(id) !== index)
+    expect(duplicateIds).toEqual([])
   })
 
   it('switches the inline editor when selecting a worker card', async () => {

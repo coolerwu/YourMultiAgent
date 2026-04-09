@@ -63,7 +63,10 @@ async def get_provider_settings(
 async def update_provider_settings(
     req: GlobalSettingsReq,
     svc: WorkspaceAppService = Depends(get_workspace_service),
+    codex_runtime: CodexRuntimeService = Depends(get_codex_runtime_service),
 ):
+    existing_settings = await svc.get_global_settings()
+    existing_codex_by_id = {item.id: item for item in existing_settings.codex_connections}
     settings = GlobalSettingsEntity(
         llm_profiles=[
             LLMProfileEntity(
@@ -77,27 +80,13 @@ async def update_provider_settings(
             for item in req.llm_profiles
         ],
         codex_connections=[
-            CodexConnectionEntity(
-                id=item.id,
-                name=item.name,
-                provider=item.provider,
-                auth_mode=item.auth_mode,
-                account_label=item.account_label,
-                status=item.status,
-                credential_ref=item.credential_ref,
-                last_verified_at=item.last_verified_at,
-                install_status=item.install_status,
-                install_path=item.install_path,
-                login_status=item.login_status,
-                last_checked_at=item.last_checked_at,
-                last_error=item.last_error,
-                cli_version=item.cli_version,
-                os_family=item.os_family,
-            )
+            _merge_codex_connection(item, existing_codex_by_id.get(item.id))
             for item in req.codex_connections
         ],
     )
-    return await svc.update_global_settings(settings)
+    saved = await svc.update_global_settings(settings)
+    saved.codex_connections = await codex_runtime.enrich_connections(saved.codex_connections)
+    return saved
 
 
 @router.get("/codex-connections")
@@ -203,3 +192,30 @@ async def login_codex_connection(
         "manual_command": result.manual_command,
         "details": result.details,
     }
+
+
+def _merge_codex_connection(req: CodexConnectionReq, existing: CodexConnectionEntity | None) -> CodexConnectionEntity:
+    if existing is None:
+        return CodexConnectionEntity(
+            id=req.id,
+            name=req.name,
+            provider=req.provider,
+            auth_mode=req.auth_mode,
+        )
+    return CodexConnectionEntity(
+        id=req.id,
+        name=req.name,
+        provider=req.provider,
+        auth_mode=req.auth_mode,
+        account_label=existing.account_label,
+        status=existing.status,
+        credential_ref=existing.credential_ref,
+        last_verified_at=existing.last_verified_at,
+        install_status=existing.install_status,
+        install_path=existing.install_path,
+        login_status=existing.login_status,
+        last_checked_at=existing.last_checked_at,
+        last_error=existing.last_error,
+        cli_version=existing.cli_version,
+        os_family=existing.os_family,
+    )

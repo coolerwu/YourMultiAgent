@@ -30,6 +30,24 @@ function CodexStatusTag({ status }) {
   return <Tag>未连接</Tag>
 }
 
+export function buildProviderSettingsPayload(vals) {
+  return {
+    llm_profiles: (vals.llm_profiles ?? []).map((profile, index) => ({
+      ...profile,
+      id: profile.id || `llm_${Date.now()}_${index}`,
+      name: String(profile.name || '').trim() || buildProviderName(profile.model, profile.base_url),
+      base_url: profile.base_url ?? '',
+      api_key: profile.api_key ?? '',
+    })),
+    codex_connections: (vals.codex_connections ?? []).map((connection, index) => ({
+      id: connection.id || `codex_${Date.now()}_${index}`,
+      name: String(connection.name || '').trim(),
+      provider: 'openai_codex',
+      auth_mode: 'chatgpt_codex_login',
+    })),
+  }
+}
+
 export default function ProviderManager({ open, onClose, onSaved, embedded = false }) {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
@@ -66,21 +84,7 @@ export default function ProviderManager({ open, onClose, onSaved, embedded = fal
       return null
     }
 
-    return {
-      llm_profiles: (vals.llm_profiles ?? []).map((profile, index) => ({
-        ...profile,
-        id: profile.id || `llm_${Date.now()}_${index}`,
-        name: String(profile.name || '').trim() || buildProviderName(profile.model, profile.base_url),
-        base_url: profile.base_url ?? '',
-        api_key: profile.api_key ?? '',
-      })),
-      codex_connections: (vals.codex_connections ?? []).map((connection, index) => ({
-        ...connection,
-        id: connection.id || `codex_${Date.now()}_${index}`,
-        provider: 'openai_codex',
-        auth_mode: 'chatgpt_codex_login',
-      })),
-    }
+    return buildProviderSettingsPayload(vals)
   }
 
   const persistSettings = async ({ closeOnSuccess = false, successMessage = '' } = {}) => {
