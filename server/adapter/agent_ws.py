@@ -19,14 +19,16 @@ WebSocket 端点 /ws/workspaces/{workspace_id}/run：
   - 执行过程异常 → 同上
 """
 
-import json
+import uuid
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from server.app.agent.agent_app_service import AgentAppService
 from server.container import get_agent_service
+from server.support.app_logging import get_logger, log_context, log_event
 
 router = APIRouter(tags=["AgentWS"])
+logger = get_logger(__name__)
 
 
 @router.websocket("/ws/workspaces/{workspace_id}/run")
@@ -35,34 +37,85 @@ async def run_workspace_ws(
     ws: WebSocket,
     svc: AgentAppService = Depends(get_agent_service),
 ) -> None:
+    request_id = ws.headers.get("x-request-id", "").strip() or str(uuid.uuid4())
     await ws.accept()
-    try:
-        # 接收第一条消息（含 user_message）
-        raw = await ws.receive_json()
-        user_message = raw.get("user_message", "").strip()
-        session_id = raw.get("session_id", "").strip()
-        if not user_message:
-            await ws.send_json({"type": "error", "message": "user_message 不能为空"})
-            await ws.close()
-            return
-
-        # 流式转发 dict 事件
-        async for event in svc.run_workspace(workspace_id, user_message, session_id):
-            await ws.send_json(event)
-            if event.get("type") == "done":
-                break
-
-    except ValueError as exc:
-        await ws.send_json({"type": "error", "message": str(exc)})
-    except WebSocketDisconnect:
-        pass
-    except Exception as exc:
+    with log_context(request_id=request_id, workspace_id=workspace_id):
+        log_event(logger, event="ws_connected", layer="ws", action="workspace_run", status="started")
         try:
-            await ws.send_json({"type": "error", "message": f"执行异常: {exc}"})
-        except Exception:
-            pass
-    finally:
-        try:
-            await ws.close()
-        except Exception:
-            pass
+            # 接收第一条消息（含 user_message）
+            raw = await ws.receive_json()
+            user_message = raw.get("user_message", "").strip()
+            session_id = raw.get("session_id", "").strip()
+            if not user_message:
+                log_event(
+                    logger,
+                    event="ws_invalid_payload",
+                    layer="ws",
+                    action="workspace_run",
+                    status="client_error",
+                    extra={"reason": "user_message 不能为空"},
+                )
+                await ws.send_json({"type": "error", "message": "user_message 不能为空"})
+                await ws.close()
+                return
+
+            if session_id:
+                with log_context(session_id=session_id):
+                    log_event(
+                        logger,
+                        event="workspace_run_started",
+                        layer="ws",
+                        action="workspace_run",
+                        status="started",
+                    )
+                    async for event in svc.run_workspace(workspace_id, user_message, session_id):
+                        await ws.send_json(event)
+                        if event.get("type") == "done":
+                            break
+            else:
+                log_event(
+                    logger,
+                    event="workspace_run_started",
+                    layer="ws",
+                    action="workspace_run",
+                    status="started",
+                )
+                async for event in svc.run_workspace(workspace_id, user_message, session_id):
+                    await ws.send_json(event)
+                    if event.get("type") == "done":
+                        break
+
+            log_event(logger, event="workspace_run_finished", layer="ws", action="workspace_run", status="success")
+
+        except ValueError as exc:
+            log_event(
+                logger,
+                event="workspace_run_error",
+                layer="ws",
+                action="workspace_run",
+                status="error",
+                level=40,
+                extra={"error": str(exc)},
+            )
+            await ws.send_json({"type": "error", "message": str(exc)})
+        except WebSocketDisconnect:
+            log_event(logger, event="ws_disconnected", layer="ws", action="workspace_run", status="disconnected")
+        except Exception as exc:
+            log_event(
+                logger,
+                event="workspace_run_error",
+                layer="ws",
+                action="workspace_run",
+                status="error",
+                level=40,
+                extra={"error": str(exc)},
+            )
+            try:
+                await ws.send_json({"type": "error", "message": f"执行异常: {exc}"})
+            except Exception:
+                pass
+        finally:
+            try:
+                await ws.close()
+            except Exception:
+                pass

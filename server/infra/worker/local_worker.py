@@ -11,6 +11,9 @@ from server.domain.worker.capability_entity import CapabilityEntity
 from server.domain.worker.worker_entity import WorkerInfoEntity
 from server.domain.worker.worker_gateway import WorkerGateway
 from server.infra.worker import registry
+from server.support.app_logging import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 class LocalWorker(WorkerGateway):
@@ -51,4 +54,23 @@ class LocalWorker(WorkerGateway):
         params: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> Any:
-        return await registry.invoke(capability_name, params, context)
+        log_event(
+            logger,
+            event="local_worker_invoke_started",
+            layer="worker",
+            action="invoke_local",
+            status="started",
+            worker_id="local",
+            extra={"capability_name": capability_name},
+        )
+        result = await registry.invoke(capability_name, params, context)
+        log_event(
+            logger,
+            event="local_worker_invoke_finished",
+            layer="worker",
+            action="invoke_local",
+            status="success",
+            worker_id="local",
+            extra={"capability_name": capability_name},
+        )
+        return result

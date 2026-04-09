@@ -486,7 +486,7 @@ export default function Dashboard() {
           <NavCard
             icon={<FileTextOutlined style={{ fontSize: 18 }} />}
             title="应用日志"
-            subtitle="查看 app.log 和 AI 运行日志"
+            subtitle="查看 app.log 和全链路结构化日志"
             active={activePanel === 'app-log'}
             onClick={() => {
               setActivePanel('app-log')

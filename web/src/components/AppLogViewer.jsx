@@ -83,9 +83,9 @@ export default function AppLogViewer() {
       <div style={{ maxWidth: 960 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#101828' }}>应用日志</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#101828' }}>应用全链路日志</div>
             <div style={{ fontSize: 13, color: '#667085', marginTop: 4 }}>
-              查看当前宿主机唯一的 app.log，默认展示最近 300 行。
+              查看当前宿主机唯一的 app.log，包含 HTTP、WebSocket、Worker、Store、AI 与系统设置事件。
             </div>
           </div>
         </div>

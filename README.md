@@ -253,7 +253,7 @@ cd web && npm run build
   - 执行 `检测环境`、`安装/更新 Codex`、`登录 Codex`
 - `应用日志`
   - 直接查看当前宿主机唯一的 `app.log`
-  - 统一记录 AI 请求/响应、工具调用、运行异常和系统级流程
+  - 统一记录 HTTP、WebSocket、Worker、Store、AI、系统设置与 `uvicorn` 访问事件
   - `app.log` 仅保留最近 3 天日志
 
 需要注意：

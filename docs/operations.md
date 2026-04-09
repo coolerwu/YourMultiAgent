@@ -15,7 +15,7 @@
   - 支持 `检测环境`、`安装/更新 Codex`、`登录 Codex`
 - `应用日志`
   - 直接展示宿主机当前唯一的 `app.log`
-  - 统一记录 AI 请求/响应、工具调用、运行异常与系统级操作
+  - 统一记录 HTTP、WebSocket、Worker、Store、AI、系统设置与 `uvicorn` 访问事件
   - 页面默认展示最近 300 行
 
 ## Codex 运行时模型
@@ -46,14 +46,15 @@
 - 日志内容仅保留最近 3 天
 - 前端 `系统设置 -> 应用日志` 直接读取该文件尾部内容
 
-当前 AI 交互链路会写入：
+当前会写入的关键事件包括：
 
-- Workspace 运行开始与结束
-- LLM 请求与响应摘要
-- 工具调用开始与结束
-- LLM/运行异常
+- HTTP 请求开始/结束/异常
+- WebSocket 连接、Workspace 运行与 Remote Worker 注册
+- Worker capability 调用、全局设置与 workspace/store 读写
+- LLM 请求/响应摘要、工具调用与运行异常
+- `uvicorn` access/error 日志
 
-如果页面运行卡住，可先查看 `app.log` 中最后一段 `ai_request`、`ai_response`、`ai_error` 或 `tool_call` 记录定位。
+如果页面运行卡住，可先查看 `app.log` 中最后一段 `http_request_error`、`workspace_run_failed`、`ai_error`、`tool_call` 或 `http_access` 记录定位。
 
 ## Codex 安装与登录
 

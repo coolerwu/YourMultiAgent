@@ -3,63 +3,224 @@ server/support/app_logging.py
 
 应用级统一日志：
 - 初始化唯一的 app.log 文件
-- 记录 AI 请求、响应、工具调用和异常
+- 提供结构化日志事件入口与上下文透传
+- 接管 HTTP 请求与 uvicorn 日志
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
-from pathlib import Path
 import time
-from typing import Any
+import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Iterator
+
+from fastapi import FastAPI, Request
 
 from server.config import get_data_dir
 
 _APP_LOG_FILE = "app.log"
 _RETENTION_DAYS = 3
 _PRUNE_INTERVAL_SECONDS = 3600
+_LOG_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("app_log_context", default={})
+_UVICORN_LOGGER_NAMES = ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi")
 
 
 def get_app_log_path() -> Path:
     return get_data_dir() / _APP_LOG_FILE
 
 
-def configure_app_logging() -> Path:
-    log_path = get_app_log_path()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+def configure_app_logging(log_path: str | Path | None = None, force: bool = False) -> Path:
+    path = Path(log_path).expanduser().resolve() if log_path else get_app_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
+    if force:
+        _remove_file_handlers(root)
+
+    existing_file_handler = next((handler for handler in root.handlers if isinstance(handler, ThreeDayFileHandler)), None)
+    if existing_file_handler is not None:
+        _configure_named_loggers()
+        return Path(existing_file_handler.baseFilename)
+
     for handler in root.handlers:
-        if isinstance(handler, ThreeDayFileHandler) and Path(handler.baseFilename) == log_path:
-            return log_path
+        if isinstance(handler, ThreeDayFileHandler) and Path(handler.baseFilename) == path:
+            _configure_named_loggers()
+            return path
 
-    formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    file_handler = ThreeDayFileHandler(
-        log_path,
-        encoding="utf-8",
-    )
+    formatter = JsonLineFormatter()
+    file_handler = ThreeDayFileHandler(path, encoding="utf-8")
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
 
-    if not any(isinstance(handler, logging.StreamHandler) and not isinstance(handler, ThreeDayFileHandler) for handler in root.handlers):
+    if not any(_is_non_file_stream_handler(handler) for handler in root.handlers):
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
         root.addHandler(stream_handler)
 
-    return log_path
+    _configure_named_loggers()
+    return path
+
+
+def install_http_logging_middleware(app: FastAPI) -> None:
+    logger = get_logger("server.http")
+
+    @app.middleware("http")
+    async def structured_http_logging(request: Request, call_next):
+        request_id = request.headers.get("x-request-id", "").strip() or str(uuid.uuid4())
+        request.state.request_id = request_id
+        started_at = time.perf_counter()
+        client_addr = _client_addr(request)
+        route_path = request.url.path
+        method = request.method.upper()
+
+        token = bind_log_context(request_id=request_id)
+        log_event(
+            logger,
+            event="http_request_start",
+            layer="http",
+            action="request",
+            status="started",
+            method=method,
+            path=route_path,
+            client_addr=client_addr,
+        )
+
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = _duration_ms(started_at)
+            log_event(
+                logger,
+                event="http_request_error",
+                layer="http",
+                action="request",
+                status="error",
+                level=logging.ERROR,
+                method=method,
+                path=route_path,
+                client_addr=client_addr,
+                duration_ms=duration_ms,
+                extra={"error": _truncate_text(str(exc), 1000)},
+            )
+            reset_log_context(token)
+            raise
+
+        response.headers["X-Request-ID"] = request_id
+        log_event(
+            logger,
+            event="http_request_end",
+            layer="http",
+            action="request",
+            status=_status_from_http_code(response.status_code),
+            method=method,
+            path=route_path,
+            client_addr=client_addr,
+            status_code=response.status_code,
+            duration_ms=_duration_ms(started_at),
+        )
+        reset_log_context(token)
+        return response
 
 
 def get_logger(name: str) -> logging.Logger:
     configure_app_logging()
     return logging.getLogger(name)
+
+
+def bind_log_context(**values: Any) -> Token:
+    current = dict(_LOG_CONTEXT.get())
+    for key, value in values.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        current[key] = value
+    return _LOG_CONTEXT.set(current)
+
+
+def reset_log_context(token: Token) -> None:
+    _LOG_CONTEXT.reset(token)
+
+
+@contextmanager
+def log_context(**values: Any) -> Iterator[None]:
+    token = bind_log_context(**values)
+    try:
+        yield
+    finally:
+        reset_log_context(token)
+
+
+def current_log_context() -> dict[str, Any]:
+    return dict(_LOG_CONTEXT.get())
+
+
+def log_event(
+    logger: logging.Logger,
+    *,
+    event: str,
+    layer: str,
+    action: str,
+    status: str = "success",
+    level: int = logging.INFO,
+    message: str = "",
+    extra: dict[str, Any] | None = None,
+    **fields: Any,
+) -> None:
+    payload = {
+        "event": event,
+        "layer": layer,
+        "action": action,
+        "status": status,
+        **{key: value for key, value in fields.items() if _has_value(value)},
+    }
+    if extra:
+        payload["extra"] = extra
+    logger.log(level, message or event, extra={"event_data": payload})
+
+
+class JsonLineFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat().replace("+00:00", "Z"),
+            "level": record.levelname,
+            "logger": record.name,
+            **current_log_context(),
+        }
+
+        event_data = getattr(record, "event_data", None)
+        if isinstance(event_data, dict):
+            payload.update(_make_jsonable(event_data))
+            if record.msg and record.msg != payload.get("event"):
+                payload.setdefault("message", record.getMessage())
+        else:
+            payload.update(self._build_default_payload(record))
+
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(_make_jsonable(payload), ensure_ascii=False)
+
+    def _build_default_payload(self, record: logging.LogRecord) -> dict[str, Any]:
+        if record.name == "uvicorn.access":
+            access_payload = _parse_uvicorn_access(record)
+            if access_payload is not None:
+                return access_payload
+
+        return {
+            "event": "log",
+            "layer": _infer_layer(record.name),
+            "action": "message",
+            "status": "error" if record.levelno >= logging.ERROR else "info",
+            "message": record.getMessage(),
+        }
 
 
 class ThreeDayFileHandler(logging.FileHandler):
@@ -110,17 +271,21 @@ def log_ai_request(
     messages: list[Any],
     extra: dict[str, Any] | None = None,
 ) -> None:
-    payload = {
-        "event": "ai_request",
-        "phase": phase,
-        "agent_name": agent_name,
-        "node_id": node_id,
-        "provider": provider,
-        "model": model,
-        "messages": [_message_preview(item) for item in messages],
-        "extra": extra or {},
-    }
-    logger.info(_json(payload))
+    log_event(
+        logger,
+        event="ai_request",
+        layer="ai",
+        action=phase,
+        status="started",
+        agent_name=agent_name,
+        node_id=node_id,
+        provider=provider,
+        model=model,
+        extra={
+            "messages": [_message_preview(item) for item in messages],
+            **(extra or {}),
+        },
+    )
 
 
 def log_ai_response(
@@ -134,17 +299,21 @@ def log_ai_response(
     response: Any,
     extra: dict[str, Any] | None = None,
 ) -> None:
-    payload = {
-        "event": "ai_response",
-        "phase": phase,
-        "agent_name": agent_name,
-        "node_id": node_id,
-        "provider": provider,
-        "model": model,
-        "response": _response_preview(response),
-        "extra": extra or {},
-    }
-    logger.info(_json(payload))
+    log_event(
+        logger,
+        event="ai_response",
+        layer="ai",
+        action=phase,
+        status="success",
+        agent_name=agent_name,
+        node_id=node_id,
+        provider=provider,
+        model=model,
+        extra={
+            "response": _response_preview(response),
+            **(extra or {}),
+        },
+    )
 
 
 def log_tool_event(
@@ -157,17 +326,19 @@ def log_tool_event(
     args: dict[str, Any] | None = None,
     result: Any = None,
 ) -> None:
-    payload = {
-        "event": "tool_call",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "node_id": node_id,
-        "agent_name": agent_name,
-        "tool_name": tool_name,
-        "status": status,
-        "args": _truncate_text(_safe_json(args or {}), 500) if args is not None else "",
-        "result": _truncate_text(_stringify(result), 500) if result is not None else "",
-    }
-    logger.info(_json(payload))
+    log_event(
+        logger,
+        event="tool_call",
+        layer="tool",
+        action=tool_name,
+        status=status,
+        node_id=node_id,
+        agent_name=agent_name,
+        extra={
+            "args": _truncate_text(_safe_json(args or {}), 500) if args is not None else "",
+            "result": _truncate_text(_stringify(result), 500) if result is not None else "",
+        },
+    )
 
 
 def log_ai_error(
@@ -179,15 +350,20 @@ def log_ai_error(
     error: Exception | str,
     extra: dict[str, Any] | None = None,
 ) -> None:
-    payload = {
-        "event": "ai_error",
-        "phase": phase,
-        "agent_name": agent_name,
-        "node_id": node_id,
-        "error": _truncate_text(str(error), 1000),
-        "extra": extra or {},
-    }
-    logger.exception(_json(payload))
+    log_event(
+        logger,
+        event="ai_error",
+        layer="ai",
+        action=phase,
+        status="error",
+        level=logging.ERROR,
+        agent_name=agent_name,
+        node_id=node_id,
+        extra={
+            "error": _truncate_text(str(error), 1000),
+            **(extra or {}),
+        },
+    )
 
 
 def _message_preview(message: Any) -> dict[str, Any]:
@@ -222,6 +398,92 @@ def _response_preview(response: Any) -> dict[str, Any]:
     }
 
 
+def _parse_uvicorn_access(record: logging.LogRecord) -> dict[str, Any] | None:
+    args = record.args
+    if not isinstance(args, tuple) or len(args) < 5:
+        return None
+    client_addr, method, path, http_version, status_code = args[:5]
+    return {
+        "event": "http_access",
+        "layer": "http",
+        "action": "access",
+        "status": _status_from_http_code(int(status_code)),
+        "client_addr": client_addr,
+        "method": method,
+        "path": path,
+        "status_code": int(status_code),
+        "http_version": str(http_version),
+    }
+
+
+def _configure_named_loggers() -> None:
+    for logger_name in _UVICORN_LOGGER_NAMES:
+        logger = logging.getLogger(logger_name)
+        logger.handlers = []
+        logger.propagate = True
+        logger.setLevel(logging.INFO)
+
+
+def _remove_file_handlers(root: logging.Logger) -> None:
+    for handler in list(root.handlers):
+        if isinstance(handler, ThreeDayFileHandler):
+            root.removeHandler(handler)
+            handler.close()
+
+
+def _is_non_file_stream_handler(handler: logging.Handler) -> bool:
+    return isinstance(handler, logging.StreamHandler) and not isinstance(handler, ThreeDayFileHandler)
+
+
+def _client_addr(request: Request) -> str:
+    if request.client is None:
+        return ""
+    return f"{request.client.host}:{request.client.port}"
+
+
+def _duration_ms(started_at: float) -> int:
+    return int((time.perf_counter() - started_at) * 1000)
+
+
+def _status_from_http_code(status_code: int) -> str:
+    if status_code >= 500:
+        return "error"
+    if status_code >= 400:
+        return "client_error"
+    if status_code >= 300:
+        return "redirect"
+    return "success"
+
+
+def _infer_layer(logger_name: str) -> str:
+    parts = logger_name.split(".")
+    if logger_name.startswith("uvicorn"):
+        return "http"
+    if len(parts) >= 2 and parts[0] == "server":
+        return parts[1]
+    return parts[0] if parts else "app"
+
+
+def _make_jsonable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _make_jsonable(item) for key, item in value.items() if _has_value(item)}
+    if isinstance(value, (list, tuple)):
+        return [_make_jsonable(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
 def _stringify(value: Any) -> str:
     if value is None:
         return ""
@@ -246,11 +508,18 @@ def _safe_json(value: Any) -> str:
         return str(value)
 
 
-def _json(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False)
-
-
 def _parse_line_timestamp(line: str) -> float | None:
+    if not line:
+        return None
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        timestamp = payload.get("timestamp")
+        if isinstance(timestamp, str):
+            return _parse_iso_timestamp(timestamp)
+
     if len(line) < 19:
         return None
     try:
@@ -258,3 +527,11 @@ def _parse_line_timestamp(line: str) -> float | None:
     except ValueError:
         return None
     return dt.timestamp()
+
+
+def _parse_iso_timestamp(value: str) -> float | None:
+    try:
+        normalized = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized).timestamp()
+    except ValueError:
+        return None

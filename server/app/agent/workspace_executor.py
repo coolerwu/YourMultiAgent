@@ -22,7 +22,7 @@ from server.domain.agent.agent_harness import AgentHarness
 from server.domain.agent.session_history import build_runtime_messages
 from server.domain.worker.capability_entity import CapabilityEntity
 from server.domain.worker.worker_gateway import WorkerGateway
-from server.support.app_logging import get_logger
+from server.support.app_logging import get_logger, log_context, log_event
 
 _MAX_TOOL_ROUNDS = 8
 logger = get_logger(__name__)
@@ -42,85 +42,117 @@ class WorkspaceExecutor:
         self._workspace_root = _resolve_workspace_root(workspace, base_work_dir)
 
     async def run(self, user_message: str, session: ChatSessionEntity) -> AsyncGenerator[dict, None]:
-        root = Path(self._workspace_root)
-        root.mkdir(parents=True, exist_ok=True)
-        (root / "shared").mkdir(parents=True, exist_ok=True)
+        with log_context(workspace_id=self._workspace.id, session_id=session.id):
+            try:
+                root = Path(self._workspace_root)
+                root.mkdir(parents=True, exist_ok=True)
+                (root / "shared").mkdir(parents=True, exist_ok=True)
+                log_event(
+                    logger,
+                    event="workspace_run_started",
+                    layer="agent",
+                    action="workspace_run",
+                    status="started",
+                    extra={"workspace_kind": self._workspace.kind, "workspace_root": str(root)},
+                )
 
-        if self._workspace.kind == WorkspaceKind.CHAT:
-            assistant = self._workspace.coordinator
-            if assistant is None:
-                raise ValueError("单聊目录尚未配置默认助手")
-            async for event in self._stream_agent(
-                agent=assistant,
-                event_type_prefix="coordinator",
-                session=session,
-                user_message=user_message,
-            ):
-                yield event
-            yield {"type": "done"}
-            return
+                if self._workspace.kind == WorkspaceKind.CHAT:
+                    assistant = self._workspace.coordinator
+                    if assistant is None:
+                        raise ValueError("单聊目录尚未配置默认助手")
+                    async for event in self._stream_agent(
+                        agent=assistant,
+                        event_type_prefix="coordinator",
+                        session=session,
+                        user_message=user_message,
+                    ):
+                        yield event
+                    log_event(logger, event="workspace_run_finished", layer="agent", action="workspace_run", status="success")
+                    yield {"type": "done"}
+                    return
 
-        coordinator = self._workspace.coordinator
-        if coordinator is None:
-            raise ValueError("Workspace 尚未配置主控智能体")
+                coordinator = self._workspace.coordinator
+                if coordinator is None:
+                    raise ValueError("Workspace 尚未配置主控智能体")
 
-        yield {
-            "type": "plan_created",
-            "coordinator": coordinator.id,
-            "coordinator_name": coordinator.name,
-        }
-        plan_text = ""
-        async for event in self._stream_agent(
-            agent=coordinator,
-            event_type_prefix="coordinator",
-            session=session,
-            user_message=_build_coordinator_message(user_message, self._workspace.workers),
-        ):
-            if event.get("type") == "text" and event.get("node") == coordinator.id:
-                plan_text += event.get("content", "")
-            yield event
+                yield {
+                    "type": "plan_created",
+                    "coordinator": coordinator.id,
+                    "coordinator_name": coordinator.name,
+                }
+                plan_text = ""
+                async for event in self._stream_agent(
+                    agent=coordinator,
+                    event_type_prefix="coordinator",
+                    session=session,
+                    user_message=_build_coordinator_message(user_message, self._workspace.workers),
+                ):
+                    if event.get("type") == "text" and event.get("node") == coordinator.id:
+                        plan_text += event.get("content", "")
+                    yield event
 
-        worker_outputs: list[dict[str, str]] = []
-        for worker in _ordered_workers(self._workspace.workers):
-            assignment = _build_assignment(plan_text, user_message, worker)
-            yield {
-                "type": "task_assigned",
-                "worker": worker.id,
-                "worker_name": worker.name,
-                "actor_id": coordinator.id,
-                "actor_name": coordinator.name,
-                "actor_kind": "coordinator",
-                "assignment": assignment,
-            }
-            output = ""
-            async for event in self._stream_agent(
-                agent=worker,
-                event_type_prefix="worker",
-                session=session,
-                user_message=assignment,
-            ):
-                if event.get("type") == "text" and event.get("node") == worker.id:
-                    output += event.get("content", "")
-                yield event
-            worker_outputs.append({"worker_name": worker.name, "output": output})
-            yield {
-                "type": "worker_result",
-                "worker": worker.id,
-                "worker_name": worker.name,
-                "actor_id": worker.id,
-                "actor_name": worker.name,
-                "actor_kind": "worker",
-                "summary": output[:240],
-            }
+                worker_outputs: list[dict[str, str]] = []
+                for worker in _ordered_workers(self._workspace.workers):
+                    assignment = _build_assignment(plan_text, user_message, worker)
+                    log_event(
+                        logger,
+                        event="worker_assignment_created",
+                        layer="agent",
+                        action="assign_worker",
+                        status="success",
+                        worker_id=worker.id,
+                        extra={"worker_name": worker.name},
+                    )
+                    yield {
+                        "type": "task_assigned",
+                        "worker": worker.id,
+                        "worker_name": worker.name,
+                        "actor_id": coordinator.id,
+                        "actor_name": coordinator.name,
+                        "actor_kind": "coordinator",
+                        "assignment": assignment,
+                    }
+                    output = ""
+                    async for event in self._stream_agent(
+                        agent=worker,
+                        event_type_prefix="worker",
+                        session=session,
+                        user_message=assignment,
+                    ):
+                        if event.get("type") == "text" and event.get("node") == worker.id:
+                            output += event.get("content", "")
+                        yield event
+                    worker_outputs.append({"worker_name": worker.name, "output": output})
+                    yield {
+                        "type": "worker_result",
+                        "worker": worker.id,
+                        "worker_name": worker.name,
+                        "actor_id": worker.id,
+                        "actor_name": worker.name,
+                        "actor_kind": "worker",
+                        "summary": output[:240],
+                    }
 
-        yield {
-            "type": "run_summary",
-            "actor_id": coordinator.id,
-            "actor_name": coordinator.name,
-            "actor_kind": "coordinator",
-            "summary": _build_run_summary(plan_text, worker_outputs),
-        }
-        yield {"type": "done"}
+                yield {
+                    "type": "run_summary",
+                    "actor_id": coordinator.id,
+                    "actor_name": coordinator.name,
+                    "actor_kind": "coordinator",
+                    "summary": _build_run_summary(plan_text, worker_outputs),
+                }
+                log_event(logger, event="workspace_run_finished", layer="agent", action="workspace_run", status="success")
+                yield {"type": "done"}
+            except Exception as exc:
+                log_event(
+                    logger,
+                    event="workspace_run_failed",
+                    layer="agent",
+                    action="workspace_run",
+                    status="error",
+                    level=40,
+                    extra={"error": str(exc)},
+                )
+                raise
 
     async def _stream_agent(
         self,
@@ -135,72 +167,97 @@ class WorkspaceExecutor:
         work_dir = _resolve_agent_work_dir(self._workspace, self._workspace_root, agent)
         Path(work_dir).mkdir(parents=True, exist_ok=True)
 
-        yield {
-            "type": f"{event_type_prefix}_start",
-            "node": agent.id,
-            "node_name": agent.name,
-            "actor_id": agent.id,
-            "actor_name": agent.name,
-            "actor_kind": event_type_prefix,
-        }
-        logger.info(
-            "agent_run_start workspace=%s node=%s name=%s provider=%s model=%s",
-            self._workspace.id,
-            agent.id,
-            agent.name,
-            agent.provider,
-            agent.model,
-        )
-        harness = AgentHarness(
-            node_id=agent.id,
-            agent_name=agent.name,
-            provider=str(agent.provider),
-            model=agent.model,
-            llm=llm,
-            tools=tools,
-            worker=self._worker_gateway,
-            work_dir=work_dir,
-            workspace_root=self._workspace_root,
-            max_rounds=_MAX_TOOL_ROUNDS,
-        )
-        runtime_messages = build_runtime_messages(
-            session,
-            exclude_latest_user_message=user_message,
-        )
-        logger.info(
-            "agent_run_context workspace=%s node=%s runtime_message_count=%s user_message_chars=%s",
-            self._workspace.id,
-            agent.id,
-            len(runtime_messages),
-            len(user_message or ""),
-        )
-        async for event in harness.run([
-            SystemMessage(content=_build_agent_system_prompt(agent, capabilities)),
-            *runtime_messages,
-            HumanMessage(content=user_message),
-        ]):
-            yield {
-                **event,
-                "actor_id": agent.id,
-                "actor_name": agent.name,
-                "actor_kind": event_type_prefix,
-            }
-        logger.info(
-            "agent_run_end workspace=%s node=%s name=%s provider=%s model=%s",
-            self._workspace.id,
-            agent.id,
-            agent.name,
-            agent.provider,
-            agent.model,
-        )
-        yield {
-            "type": f"{event_type_prefix}_end",
-            "node": agent.id,
-            "node_name": agent.name,
-            "actor_id": agent.id,
-            "actor_name": agent.name,
-            "actor_kind": event_type_prefix,
-        }
+        with log_context(node_id=agent.id, agent_name=agent.name):
+            try:
+                yield {
+                    "type": f"{event_type_prefix}_start",
+                    "node": agent.id,
+                    "node_name": agent.name,
+                    "actor_id": agent.id,
+                    "actor_name": agent.name,
+                    "actor_kind": event_type_prefix,
+                }
+                log_event(
+                    logger,
+                    event="agent_run_started",
+                    layer="agent",
+                    action="agent_run",
+                    status="started",
+                    provider=str(agent.provider),
+                    model=agent.model,
+                )
+                harness = AgentHarness(
+                    node_id=agent.id,
+                    agent_name=agent.name,
+                    provider=str(agent.provider),
+                    model=agent.model,
+                    llm=llm,
+                    tools=tools,
+                    worker=self._worker_gateway,
+                    work_dir=work_dir,
+                    workspace_root=self._workspace_root,
+                    max_rounds=_MAX_TOOL_ROUNDS,
+                )
+                runtime_messages = build_runtime_messages(
+                    session,
+                    exclude_latest_user_message=user_message,
+                )
+                log_event(
+                    logger,
+                    event="agent_run_context",
+                    layer="agent",
+                    action="agent_run",
+                    status="success",
+                    provider=str(agent.provider),
+                    model=agent.model,
+                    extra={
+                        "runtime_message_count": len(runtime_messages),
+                        "user_message_chars": len(user_message or ""),
+                        "tool_count": len(tools),
+                        "work_dir": work_dir,
+                    },
+                )
+                async for event in harness.run([
+                    SystemMessage(content=_build_agent_system_prompt(agent, capabilities)),
+                    *runtime_messages,
+                    HumanMessage(content=user_message),
+                ]):
+                    yield {
+                        **event,
+                        "actor_id": agent.id,
+                        "actor_name": agent.name,
+                        "actor_kind": event_type_prefix,
+                    }
+                log_event(
+                    logger,
+                    event="agent_run_finished",
+                    layer="agent",
+                    action="agent_run",
+                    status="success",
+                    provider=str(agent.provider),
+                    model=agent.model,
+                )
+                yield {
+                    "type": f"{event_type_prefix}_end",
+                    "node": agent.id,
+                    "node_name": agent.name,
+                    "actor_id": agent.id,
+                    "actor_name": agent.name,
+                    "actor_kind": event_type_prefix,
+                }
+            except Exception as exc:
+                log_event(
+                    logger,
+                    event="agent_run_failed",
+                    layer="agent",
+                    action="agent_run",
+                    status="error",
+                    level=40,
+                    provider=str(agent.provider),
+                    model=agent.model,
+                    extra={"error": str(exc)},
+                )
+                raise
 
 
 def _build_capabilities(tool_names: list[str], worker: WorkerGateway) -> list[CapabilityEntity]:

@@ -20,6 +20,9 @@ from fastapi import WebSocket
 from server.domain.worker.capability_entity import CapabilityEntity
 from server.domain.worker.worker_entity import WorkerInfoEntity, WorkerMetaEntity
 from server.domain.worker.worker_gateway import WorkerGateway
+from server.support.app_logging import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 class RemoteWorkerProxy(WorkerGateway):
@@ -58,6 +61,15 @@ class RemoteWorkerProxy(WorkerGateway):
             raise ValueError(f"Worker 不存在: {worker_id}")
         available = {item.name for item in self._capabilities}
         self._enabled_capability_names = [item for item in capability_names if item in available]
+        log_event(
+            logger,
+            event="remote_worker_capabilities_updated",
+            layer="worker",
+            action="set_enabled_capabilities",
+            status="success",
+            worker_id=self.worker_id,
+            extra={"enabled_capability_names": list(self._enabled_capability_names)},
+        )
         return self.to_worker_info()
 
     async def invoke(
@@ -70,6 +82,7 @@ class RemoteWorkerProxy(WorkerGateway):
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending[request_id] = future
+        started_at = asyncio.get_event_loop().time()
 
         await self._ws.send_json({
             "type": "invoke",
@@ -78,11 +91,45 @@ class RemoteWorkerProxy(WorkerGateway):
             "params": params,
             "context": context or {},
         })
+        log_event(
+            logger,
+            event="remote_worker_invoke_sent",
+            layer="worker",
+            action="invoke_remote",
+            status="started",
+            request_id=request_id,
+            worker_id=self.worker_id,
+            extra={"capability_name": capability_name},
+        )
 
         try:
-            return await asyncio.wait_for(future, timeout=60)
+            result = await asyncio.wait_for(future, timeout=60)
+            log_event(
+                logger,
+                event="remote_worker_invoke_finished",
+                layer="worker",
+                action="invoke_remote",
+                status="success",
+                request_id=request_id,
+                worker_id=self.worker_id,
+                duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+                extra={"capability_name": capability_name},
+            )
+            return result
         except asyncio.TimeoutError:
             self._pending.pop(request_id, None)
+            log_event(
+                logger,
+                event="remote_worker_invoke_timeout",
+                layer="worker",
+                action="invoke_remote",
+                status="error",
+                level=40,
+                request_id=request_id,
+                worker_id=self.worker_id,
+                duration_ms=int((asyncio.get_event_loop().time() - started_at) * 1000),
+                extra={"capability_name": capability_name},
+            )
             raise TimeoutError(f"Remote worker '{self.worker_id}' 调用 '{capability_name}' 超时（60s）")
 
     # ── 内部接口（由 worker_ws.py 调用）─────────────────────
@@ -95,9 +142,29 @@ class RemoteWorkerProxy(WorkerGateway):
             return
         if error:
             self._last_error = error
+            log_event(
+                logger,
+                event="remote_worker_result_error",
+                layer="worker",
+                action="resolve_remote_result",
+                status="error",
+                level=40,
+                request_id=request_id,
+                worker_id=self.worker_id,
+                extra={"error": error},
+            )
             future.set_exception(RuntimeError(f"Remote capability error: {error}"))
         else:
             self._last_error = ""
+            log_event(
+                logger,
+                event="remote_worker_result_ok",
+                layer="worker",
+                action="resolve_remote_result",
+                status="success",
+                request_id=request_id,
+                worker_id=self.worker_id,
+            )
             future.set_result(result)
 
     def mark_seen(self) -> None:

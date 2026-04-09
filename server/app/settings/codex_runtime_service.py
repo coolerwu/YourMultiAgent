@@ -22,6 +22,9 @@ from server.infra.codex.codex_cli import (
     os_family,
     run_command,
 )
+from server.support.app_logging import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -75,6 +78,14 @@ class CodexRuntimeService:
         connection = await self._load_connection(connection_id)
         refreshed = self.inspect_connection(connection)
         await self._save_connection(refreshed)
+        log_event(
+            logger,
+            event="codex_connection_refreshed",
+            layer="settings",
+            action="refresh_codex_connection",
+            status="success",
+            extra={"connection_id": connection_id, "login_status": refreshed.login_status, "install_status": refreshed.install_status},
+        )
         return CodexActionResult(connection=refreshed, message="Codex 运行时状态已刷新")
 
     async def install_connection(self, connection_id: str) -> CodexActionResult:
@@ -82,6 +93,14 @@ class CodexRuntimeService:
         current = self.inspect_connection(connection)
         if current.install_status == "installed":
             await self._save_connection(current)
+            log_event(
+                logger,
+                event="codex_install_skipped",
+                layer="settings",
+                action="install_codex_connection",
+                status="success",
+                extra={"connection_id": connection_id},
+            )
             return CodexActionResult(connection=current, message="Codex CLI 已安装")
 
         if not detect_node_path() or not detect_npm_path():
@@ -89,6 +108,15 @@ class CodexRuntimeService:
             current.status = "disconnected"
             current.last_error = "未检测到 Node.js/npm，请先在宿主机安装 Node.js 后再安装 Codex。"
             await self._save_connection(current)
+            log_event(
+                logger,
+                event="codex_install_blocked",
+                layer="settings",
+                action="install_codex_connection",
+                status="error",
+                level=40,
+                extra={"connection_id": connection_id, "reason": current.last_error},
+            )
             return CodexActionResult(
                 connection=current,
                 message=current.last_error,
@@ -100,12 +128,29 @@ class CodexRuntimeService:
         refreshed.last_error = "" if refreshed.install_status == "installed" else (result.combined_output or "Codex CLI 安装失败")
         await self._save_connection(refreshed)
         if refreshed.install_status == "installed":
+            log_event(
+                logger,
+                event="codex_installed",
+                layer="settings",
+                action="install_codex_connection",
+                status="success",
+                extra={"connection_id": connection_id},
+            )
             return CodexActionResult(
                 connection=refreshed,
                 message="Codex CLI 安装完成。请退出终端并重新进入，然后执行 codex login --device-auth 完成登录。",
                 manual_command="codex login --device-auth",
                 details=result.combined_output,
             )
+        log_event(
+            logger,
+            event="codex_install_failed",
+            layer="settings",
+            action="install_codex_connection",
+            status="error",
+            level=40,
+            extra={"connection_id": connection_id, "details": refreshed.last_error},
+        )
         return CodexActionResult(
             connection=refreshed,
             message="Codex CLI 安装失败",
@@ -118,6 +163,14 @@ class CodexRuntimeService:
         current = self.inspect_connection(connection)
         if current.install_status != "installed":
             await self._save_connection(current)
+            log_event(
+                logger,
+                event="codex_login_blocked",
+                layer="settings",
+                action="login_codex_connection",
+                status="client_error",
+                extra={"connection_id": connection_id},
+            )
             return CodexActionResult(
                 connection=current,
                 message="请先安装 Codex CLI",
@@ -126,10 +179,26 @@ class CodexRuntimeService:
 
         if current.login_status == "connected":
             await self._save_connection(current)
+            log_event(
+                logger,
+                event="codex_already_logged_in",
+                layer="settings",
+                action="login_codex_connection",
+                status="success",
+                extra={"connection_id": connection_id},
+            )
             return CodexActionResult(connection=current, message="Codex 已登录")
 
         current.last_error = ""
         await self._save_connection(current)
+        log_event(
+            logger,
+            event="codex_login_manual_required",
+            layer="settings",
+            action="login_codex_connection",
+            status="started",
+            extra={"connection_id": connection_id},
+        )
         return CodexActionResult(
             connection=current,
             message="请在宿主机执行 Codex 登录命令完成授权",

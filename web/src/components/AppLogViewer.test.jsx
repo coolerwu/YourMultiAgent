@@ -33,7 +33,7 @@ describe('AppLogViewer', () => {
   it('renders app log as a standalone page', async () => {
     render(<AppLogViewer />)
 
-    expect(await screen.findByText('应用日志')).toBeInTheDocument()
+    expect(await screen.findByText('应用全链路日志')).toBeInTheDocument()
     expect(await screen.findByText(/当前只保留一个应用日志文件：app\.log/)).toBeInTheDocument()
     expect(await screen.findByTestId('system-app-log')).toHaveTextContent('ai_request')
   })
@@ -64,7 +64,7 @@ describe('AppLogViewer', () => {
     })
     const clearIntervalSpy = vi.spyOn(window, 'clearInterval').mockImplementation(() => {})
     render(<AppLogViewer />)
-    expect(await screen.findByText('应用日志')).toBeInTheDocument()
+    expect(await screen.findByText('应用全链路日志')).toBeInTheDocument()
 
     await waitFor(() => {
       expect(workspaceApiMock.getAppLog).toHaveBeenCalledTimes(2)

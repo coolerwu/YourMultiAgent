@@ -27,6 +27,9 @@ from server.infra.store.workspace_json import (
     workspace_from_payload,
     workspace_to_payload,
 )
+from server.support.app_logging import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 class JsonWorkspaceStore(WorkspaceGateway):
@@ -51,6 +54,15 @@ class JsonWorkspaceStore(WorkspaceGateway):
         current_graphs = graphs_from_payload(current_payload)
         save_workspace_payload(payload_path, workspace_to_payload(ws, current_graphs))
         save_setting_entries(self._data_dir, entries)
+        log_event(
+            logger,
+            event="workspace_saved",
+            layer="store",
+            action="save_workspace",
+            status="success",
+            workspace_id=ws.id,
+            extra={"path": str(payload_path)},
+        )
 
     async def find_by_id(self, ws_id: str) -> Optional[WorkspaceEntity]:
         entries = load_setting_entries(self._data_dir)
@@ -60,11 +72,27 @@ class JsonWorkspaceStore(WorkspaceGateway):
 
         payload = load_workspace_payload(workspace_file_path(self._data_dir, entry["dir_name"]))
         if not payload:
+            log_event(
+                logger,
+                event="workspace_load_missed",
+                layer="store",
+                action="find_workspace_by_id",
+                status="client_error",
+                workspace_id=ws_id,
+            )
             return None
         ws = workspace_from_payload(payload)
         settings = load_global_settings(self._data_dir)
         _apply_global_settings(ws, settings)
         ws.dir_name = entry["dir_name"]
+        log_event(
+            logger,
+            event="workspace_loaded",
+            layer="store",
+            action="find_workspace_by_id",
+            status="success",
+            workspace_id=ws.id,
+        )
         return ws
 
     async def find_all(self) -> list[WorkspaceEntity]:
@@ -77,14 +105,38 @@ class JsonWorkspaceStore(WorkspaceGateway):
                 _apply_global_settings(ws, settings)
                 ws.dir_name = entry["dir_name"]
                 result.append(ws)
+        log_event(
+            logger,
+            event="workspace_list_loaded",
+            layer="store",
+            action="find_all_workspaces",
+            status="success",
+            extra={"workspace_count": len(result)},
+        )
         return result
 
     async def delete(self, ws_id: str) -> bool:
         entries = load_setting_entries(self._data_dir)
         filtered = [item for item in entries if item["id"] != ws_id]
         if len(filtered) == len(entries):
+            log_event(
+                logger,
+                event="workspace_delete_missed",
+                layer="store",
+                action="delete_workspace",
+                status="client_error",
+                workspace_id=ws_id,
+            )
             return False
         save_setting_entries(self._data_dir, filtered)
+        log_event(
+            logger,
+            event="workspace_deleted",
+            layer="store",
+            action="delete_workspace",
+            status="success",
+            workspace_id=ws_id,
+        )
         return True
 
     def _migrate_legacy_if_needed(self) -> None:
@@ -152,10 +204,27 @@ class JsonWorkspaceStore(WorkspaceGateway):
             save_global_settings(self._data_dir, _global_settings_from_legacy(migrated_settings))
 
     async def load_global_settings(self) -> GlobalSettingsEntity:
-        return load_global_settings(self._data_dir)
+        settings = load_global_settings(self._data_dir)
+        log_event(
+            logger,
+            event="global_settings_loaded",
+            layer="store",
+            action="load_global_settings",
+            status="success",
+            extra={"llm_profile_count": len(settings.llm_profiles), "codex_connection_count": len(settings.codex_connections)},
+        )
+        return settings
 
     async def save_global_settings(self, settings: GlobalSettingsEntity) -> GlobalSettingsEntity:
         save_global_settings(self._data_dir, settings)
+        log_event(
+            logger,
+            event="global_settings_saved",
+            layer="store",
+            action="save_global_settings",
+            status="success",
+            extra={"llm_profile_count": len(settings.llm_profiles), "codex_connection_count": len(settings.codex_connections)},
+        )
         return settings
 
 

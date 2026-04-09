@@ -22,6 +22,9 @@ from server.domain.agent.agent_entity import (
 )
 from server.domain.agent.workspace_gateway import WorkspaceGateway
 from server.domain.agent.session_history import create_session
+from server.support.app_logging import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -112,6 +115,15 @@ class WorkspaceAppService:
             workers=[],
         )
         await self._gateway.save(ws)
+        log_event(
+            logger,
+            event="workspace_created",
+            layer="app",
+            action="create_workspace",
+            status="success",
+            workspace_id=ws.id,
+            extra={"workspace_name": ws.name, "workspace_kind": ws.kind},
+        )
         return ws
 
     async def update_workspace(self, cmd: UpdateWorkspaceCmd) -> WorkspaceEntity:
@@ -134,6 +146,15 @@ class WorkspaceAppService:
             sessions=current.sessions if current else [],
         )
         await self._gateway.save(ws)
+        log_event(
+            logger,
+            event="workspace_updated",
+            layer="app",
+            action="update_workspace",
+            status="success",
+            workspace_id=ws.id,
+            extra={"workspace_name": ws.name},
+        )
         return ws
 
     async def list_workspaces(self) -> list[WorkspaceEntity]:
@@ -143,7 +164,16 @@ class WorkspaceAppService:
         return await self._gateway.find_by_id(ws_id)
 
     async def delete_workspace(self, ws_id: str) -> bool:
-        return await self._gateway.delete(ws_id)
+        deleted = await self._gateway.delete(ws_id)
+        log_event(
+            logger,
+            event="workspace_deleted" if deleted else "workspace_delete_missed",
+            layer="app",
+            action="delete_workspace",
+            status="success" if deleted else "client_error",
+            workspace_id=ws_id,
+        )
+        return deleted
 
     async def get_orchestration(self, ws_id: str) -> WorkspaceEntity | None:
         return await self._gateway.find_by_id(ws_id)
@@ -162,6 +192,15 @@ class WorkspaceAppService:
         session = create_session(title_hint)
         workspace.sessions.insert(0, session)
         await self._gateway.save(workspace)
+        log_event(
+            logger,
+            event="session_created",
+            layer="app",
+            action="create_session",
+            status="success",
+            workspace_id=ws_id,
+            session_id=session.id,
+        )
         return session
 
     async def get_session(self, ws_id: str, session_id: str) -> ChatSessionEntity | None:
@@ -184,6 +223,15 @@ class WorkspaceAppService:
 
         workspace.sessions.sort(key=lambda item: item.updated_at, reverse=True)
         await self._gateway.save(workspace)
+        log_event(
+            logger,
+            event="session_saved",
+            layer="app",
+            action="save_session",
+            status="success",
+            workspace_id=ws_id,
+            session_id=session.id,
+        )
 
     async def delete_session(self, ws_id: str, session_id: str) -> bool:
         workspace = await self._gateway.find_by_id(ws_id)
@@ -191,9 +239,27 @@ class WorkspaceAppService:
             raise ValueError(f"Workspace 不存在: {ws_id}")
         filtered = [item for item in workspace.sessions if item.id != session_id]
         if len(filtered) == len(workspace.sessions):
+            log_event(
+                logger,
+                event="session_delete_missed",
+                layer="app",
+                action="delete_session",
+                status="client_error",
+                workspace_id=ws_id,
+                session_id=session_id,
+            )
             return False
         workspace.sessions = filtered
         await self._gateway.save(workspace)
+        log_event(
+            logger,
+            event="session_deleted",
+            layer="app",
+            action="delete_session",
+            status="success",
+            workspace_id=ws_id,
+            session_id=session_id,
+        )
         return True
 
     async def update_orchestration(self, cmd: UpdateWorkspaceOrchestrationCmd) -> WorkspaceEntity:
@@ -204,6 +270,15 @@ class WorkspaceAppService:
         current.coordinator = _to_agent_entity(cmd.coordinator, current)
         current.workers = _normalize_workers([_to_agent_entity(worker, current) for worker in cmd.workers])
         await self._gateway.save(current)
+        log_event(
+            logger,
+            event="workspace_orchestration_updated",
+            layer="app",
+            action="update_orchestration",
+            status="success",
+            workspace_id=current.id,
+            extra={"worker_count": len(current.workers)},
+        )
         return current
 
     async def get_global_settings(self) -> GlobalSettingsEntity:
@@ -220,6 +295,18 @@ class WorkspaceAppService:
             workspace.llm_profiles = list(saved.llm_profiles)
             workspace.codex_connections = list(saved.codex_connections)
             await self._gateway.save(workspace)
+        log_event(
+            logger,
+            event="global_settings_updated",
+            layer="app",
+            action="update_global_settings",
+            status="success",
+            extra={
+                "workspace_count": len(workspaces),
+                "llm_profile_count": len(saved.llm_profiles),
+                "codex_connection_count": len(saved.codex_connections),
+            },
+        )
         return saved
 
 

@@ -27,11 +27,13 @@ from server.adapter.worker_controller import router as worker_router
 from server.adapter.worker_ws import router as worker_ws_router
 from server.adapter.workspace_controller import router as workspace_router
 from server.container import init_container
-from server.support.app_logging import configure_app_logging
+from server.support.app_logging import configure_app_logging, get_logger, install_http_logging_middleware, log_event
 
 configure_app_logging()
+logger = get_logger(__name__)
 
 app = FastAPI(title="YourMultiAgent", version="0.1.0")
+install_http_logging_middleware(app)
 
 # ── CORS（开发阶段放开，生产按需收紧）──────────────────────────
 app.add_middleware(
@@ -65,9 +67,16 @@ if _WEB_DIR.exists():
 # ── 启动事件 ──────────────────────────────────────────────────
 @app.on_event("startup")
 def on_startup():
+    log_event(logger, event="app_startup", layer="app", action="startup", status="started")
     init_container()
+    log_event(logger, event="app_startup", layer="app", action="startup", status="success")
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    log_event(logger, event="app_shutdown", layer="app", action="shutdown", status="success")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server.main:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("server.main:app", host="0.0.0.0", port=8080, reload=True, access_log=True, log_config=None)

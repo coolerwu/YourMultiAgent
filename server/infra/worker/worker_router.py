@@ -19,6 +19,9 @@ from server.domain.worker.worker_gateway import WorkerGateway
 from server.infra.store.workspace_json import read_json, write_json
 from server.infra.worker.local_worker import LocalWorker
 from server.infra.worker.remote_worker_proxy import RemoteWorkerProxy
+from server.support.app_logging import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 class WorkerRouter(WorkerGateway):
@@ -36,9 +39,26 @@ class WorkerRouter(WorkerGateway):
         if enabled is not None:
             proxy.set_enabled_capabilities(proxy.worker_id, enabled)
         self._remotes[proxy.worker_id] = proxy
+        log_event(
+            logger,
+            event="remote_worker_registered",
+            layer="worker",
+            action="register_remote",
+            status="success",
+            worker_id=proxy.worker_id,
+            extra={"enabled_capability_count": len(proxy.list_capabilities())},
+        )
 
     def unregister_remote(self, worker_id: str) -> None:
         self._remotes.pop(worker_id, None)
+        log_event(
+            logger,
+            event="remote_worker_unregistered",
+            layer="worker",
+            action="unregister_remote",
+            status="success",
+            worker_id=worker_id,
+        )
 
     def list_remote_workers(self) -> list[str]:
         return list(self._remotes.keys())
@@ -60,7 +80,17 @@ class WorkerRouter(WorkerGateway):
 
     def set_enabled_capabilities(self, worker_id: str, capability_names: list[str]) -> WorkerInfoEntity:
         if worker_id == "local":
-            return self._local.set_enabled_capabilities(worker_id, capability_names)
+            info = self._local.set_enabled_capabilities(worker_id, capability_names)
+            log_event(
+                logger,
+                event="worker_capabilities_updated",
+                layer="worker",
+                action="set_enabled_capabilities",
+                status="success",
+                worker_id=worker_id,
+                extra={"enabled_capability_names": list(info.enabled_capability_names)},
+            )
+            return info
 
         proxy = self._remotes.get(worker_id)
         if proxy is None:
@@ -69,6 +99,15 @@ class WorkerRouter(WorkerGateway):
         info = proxy.set_enabled_capabilities(worker_id, capability_names)
         self._enabled_configs[worker_id] = list(info.enabled_capability_names)
         self._save_enabled_configs()
+        log_event(
+            logger,
+            event="worker_capabilities_updated",
+            layer="worker",
+            action="set_enabled_capabilities",
+            status="success",
+            worker_id=worker_id,
+            extra={"enabled_capability_names": list(info.enabled_capability_names)},
+        )
         return info
 
     async def invoke(
@@ -80,14 +119,43 @@ class WorkerRouter(WorkerGateway):
         # 本机优先
         local_names = {c.name for c in self._local.list_capabilities()}
         if capability_name in local_names:
-            return await self._local.invoke(capability_name, params, context)
+            result = await self._local.invoke(capability_name, params, context)
+            log_event(
+                logger,
+                event="worker_invoke_finished",
+                layer="worker",
+                action="invoke",
+                status="success",
+                worker_id="local",
+                extra={"capability_name": capability_name},
+            )
+            return result
 
         # 按注册顺序查找远程
         for proxy in self._remotes.values():
             remote_names = {c.name for c in proxy.list_capabilities()}
             if capability_name in remote_names:
-                return await proxy.invoke(capability_name, params, context)
+                result = await proxy.invoke(capability_name, params, context)
+                log_event(
+                    logger,
+                    event="worker_invoke_finished",
+                    layer="worker",
+                    action="invoke",
+                    status="success",
+                    worker_id=proxy.worker_id,
+                    extra={"capability_name": capability_name},
+                )
+                return result
 
+        log_event(
+            logger,
+            event="worker_invoke_missing_capability",
+            layer="worker",
+            action="invoke",
+            status="error",
+            level=40,
+            extra={"capability_name": capability_name},
+        )
         raise ValueError(f"没有任何 Worker 支持 capability: '{capability_name}'")
 
     def _enabled_config_path(self) -> Path | None:
@@ -107,6 +175,14 @@ class WorkerRouter(WorkerGateway):
         for worker_id, names in workers.items():
             if isinstance(worker_id, str) and isinstance(names, list):
                 result[worker_id] = [item for item in names if isinstance(item, str)]
+        log_event(
+            logger,
+            event="worker_settings_loaded",
+            layer="worker",
+            action="load_enabled_configs",
+            status="success",
+            extra={"worker_count": len(result)},
+        )
         return result
 
     def _save_enabled_configs(self) -> None:
@@ -114,3 +190,11 @@ class WorkerRouter(WorkerGateway):
         if path is None:
             return
         write_json(path, {"version": 1, "workers": self._enabled_configs})
+        log_event(
+            logger,
+            event="worker_settings_saved",
+            layer="worker",
+            action="save_enabled_configs",
+            status="success",
+            extra={"worker_count": len(self._enabled_configs)},
+        )

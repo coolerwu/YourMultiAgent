@@ -10,6 +10,7 @@ server/app/settings/update_now_service.py
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import threading
@@ -18,8 +19,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from server.support.app_logging import get_logger, log_event
+
 GIT_RETRY_COUNT = 3
 GIT_RETRY_DELAY_SECONDS = 2.0
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -69,6 +73,7 @@ class UpdateNowService:
     def start_update(self) -> dict:
         with self._lock:
             if self._state.status in {"running", "restarting"}:
+                log_event(logger, event="update_now_already_running", layer="settings", action="update_now", status="success")
                 return self._serialize(self._state)
 
             self._state = UpdateNowState(
@@ -86,6 +91,7 @@ class UpdateNowService:
                 logs=["开始执行 Update Now"],
             )
             self._save_state_locked()
+        log_event(logger, event="update_now_started", layer="settings", action="update_now", status="started")
 
         thread = threading.Thread(target=self._run_update, daemon=True)
         thread.start()
@@ -96,6 +102,14 @@ class UpdateNowService:
             current_head = self._read_head()
             with self._lock:
                 self._mark_success_locked("服务重启完成", current_head)
+            log_event(
+                logger,
+                event="update_now_resumed_after_restart",
+                layer="settings",
+                action="update_now",
+                status="success",
+                extra={"target_commit_after": current_head},
+            )
         elif self._state.status == "running":
             with self._lock:
                 self._state.status = "failed"
@@ -103,6 +117,7 @@ class UpdateNowService:
                 self._state.error = self._state.error or "更新在服务重启前中断"
                 self._state.logs.append("更新在服务重启前中断")
                 self._save_state_locked()
+            log_event(logger, event="update_now_interrupted", layer="settings", action="update_now", status="error", level=logging.ERROR)
 
     def _run_update(self) -> None:
         try:
@@ -123,16 +138,27 @@ class UpdateNowService:
                 self._state.finished_at = _utc_now()
                 self._state.logs.append("更新完成，准备重启服务进程")
                 self._save_state_locked()
+            log_event(logger, event="update_now_restarting_service", layer="settings", action="update_now", status="started")
 
             self._restart_callback()
         except Exception as exc:  # noqa: BLE001
             with self._lock:
                 self._mark_failed_locked(str(exc))
+            log_event(
+                logger,
+                event="update_now_failed",
+                layer="settings",
+                action="update_now",
+                status="error",
+                level=logging.ERROR,
+                extra={"error": str(exc)},
+            )
 
     def _run_step(self, step_name: str, fn: Callable[[], subprocess.CompletedProcess[str] | str | None]) -> None:
         with self._lock:
             self._set_step_status_locked(step_name, "running", "")
             self._save_state_locked()
+        log_event(logger, event="update_now_step_started", layer="settings", action=step_name, status="started")
 
         result = fn()
         summary = self._summarize_result(result)
@@ -142,6 +168,14 @@ class UpdateNowService:
             if summary:
                 self._state.logs.append(f"{step_name}: {summary}")
             self._save_state_locked()
+        log_event(
+            logger,
+            event="update_now_step_finished",
+            layer="settings",
+            action=step_name,
+            status="success",
+            extra={"summary": summary},
+        )
 
     def _inspect_repo(self) -> str:
         before = self._read_head()
@@ -209,7 +243,24 @@ class UpdateNowService:
                 self._state.logs.append(output)
                 self._save_state_locked()
         if result.returncode != 0:
+            log_event(
+                logger,
+                event="update_now_command_failed",
+                layer="settings",
+                action="run_command",
+                status="error",
+                level=logging.ERROR,
+                extra={"command": cmd, "output": output},
+            )
             raise RuntimeError(output or f"命令执行失败: {' '.join(cmd)}")
+        log_event(
+            logger,
+            event="update_now_command_finished",
+            layer="settings",
+            action="run_command",
+            status="success",
+            extra={"command": cmd},
+        )
         return result
 
     def _default_restart(self) -> None:
