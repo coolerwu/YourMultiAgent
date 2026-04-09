@@ -271,8 +271,8 @@ export default function AgentEditorPanel({
             <Form.Item name="temperature" label="Temperature">
               <InputNumber min={0} max={2} step={0.1} style={{ width: 120 }} />
             </Form.Item>
-            <Form.Item name="tools" label="工具" style={{ flex: 1 }}>
-              <Select mode="multiple">
+            <Form.Item name="tools" label="工具" style={{ minWidth: 320, flex: 1 }}>
+              <Select mode="multiple" style={{ minWidth: 280 }}>
                 {capabilities.map((cap) => <Option key={cap.name} value={cap.name}>{cap.name}</Option>)}
               </Select>
             </Form.Item>
