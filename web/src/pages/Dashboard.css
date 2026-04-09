@@ -16,10 +16,15 @@
 .dashboard-brand {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 8px 6px 16px;
   border-bottom: 1px solid #eaecf0;
   margin-bottom: 18px;
+}
+
+.dashboard-brand-collapsed {
+  justify-content: center;
 }
 
 .dashboard-panel-card {
@@ -42,6 +47,34 @@
 .dashboard-panel-card-active {
   background: #eff8ff;
   border-color: #b2ddff;
+}
+
+.dashboard-icon-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #eaecf0;
+}
+
+.dashboard-icon-button {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  color: #475467;
+}
+
+.dashboard-icon-button:hover {
+  background: #f2f4f7 !important;
+  color: #1677ff !important;
+}
+
+.dashboard-icon-button-active {
+  background: #eff8ff !important;
+  color: #1677ff !important;
+  border: 1px solid #b2ddff !important;
 }
 
 .dashboard-content {

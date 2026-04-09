@@ -53,6 +53,7 @@ describe('Dashboard', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    window.localStorage.clear()
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation((query) => ({
@@ -163,5 +164,38 @@ describe('Dashboard', () => {
 
     expect(await screen.findByText(/当前只保留一个应用日志文件：app\.log/)).toBeInTheDocument()
     expect(await screen.findByTestId('system-app-log')).toHaveTextContent('ai_request')
+  })
+
+  it('collapses desktop sidebar to icon mode and persists preference', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query) => ({
+        matches: query.includes('min-width'),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    })
+
+    render(<Dashboard />)
+
+    await waitFor(() => {
+      expect(workspaceApiMock.list).toHaveBeenCalled()
+    })
+
+    expect(screen.getByText('单聊')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '折叠导航' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('单聊')).not.toBeInTheDocument()
+    })
+
+    expect(window.localStorage.getItem('dashboard-sidebar-collapsed')).toBe('1')
+    expect(screen.getByRole('button', { name: '展开导航' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '全局模型连接' })).toBeInTheDocument()
   })
 })

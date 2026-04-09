@@ -65,7 +65,9 @@ describe('WorkspaceRunView', () => {
       expect(workspaceApiMock.listSessions).toHaveBeenCalledWith('ws-1')
     })
 
-    expect(await screen.findByText('历史会话')).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /新建会话/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /删除会话/ })).toBeInTheDocument()
     expect(await screen.findByText(/Compact 摘要/)).toBeInTheDocument()
     expect(await screen.findByText('goal: 做一个页面')).toBeInTheDocument()
     expect(await screen.findByText('页面结构已确认')).toBeInTheDocument()
@@ -134,7 +136,9 @@ describe('WorkspaceRunView', () => {
 
     render(<WorkspaceRunView workspace={{ id: 'ws-1', llm_profiles: [] }} />)
 
-    await screen.findByText('历史会话')
+    await waitFor(() => {
+      expect(workspaceApiMock.getSession).toHaveBeenCalledWith('ws-1', 'session-1')
+    })
     const input = screen.getByPlaceholderText('输入任务，交给主控智能体...（Ctrl+Enter 发送）')
     fireEvent.change(input, { target: { value: '实现页面' } })
     fireEvent.click(screen.getByRole('button', { name: /发送/ }))
@@ -143,17 +147,68 @@ describe('WorkspaceRunView', () => {
     expect(await screen.findByTestId('agent-step-worker-1')).toHaveTextContent('Step: 执行')
   })
 
-  it('opens session list in drawer on compact viewport', async () => {
-    window.innerWidth = 800
-    window.dispatchEvent(new Event('resize'))
+  it('switches session from top dropdown', async () => {
+    workspaceApiMock.listSessions.mockResolvedValue([
+      {
+        id: 'session-1',
+        title: '历史会话',
+        updated_at: '2026-04-07T10:00:00Z',
+        message_count: 2,
+        summary: '此前已经确定页面结构。',
+        memory_items: [{ id: 'memory-1', category: 'goal', content: '做一个页面' }],
+        messages: [],
+      },
+      {
+        id: 'session-2',
+        title: '近期会话',
+        updated_at: '2026-04-08T10:00:00Z',
+        message_count: 4,
+        summary: '已经定位到 Codex 输出问题。',
+        memory_items: [{ id: 'memory-2', category: 'artifact', content: 'codex_cli_adapter.py' }],
+        messages: [],
+      },
+    ])
+    workspaceApiMock.getSession.mockImplementation(async (_workspaceId, sessionId) => {
+      if (sessionId === 'session-2') {
+        return {
+          id: 'session-2',
+          title: '近期会话',
+          updated_at: '2026-04-08T10:00:00Z',
+          message_count: 4,
+          summary: '已经定位到 Codex 输出问题。',
+          memory_items: [{ id: 'memory-2', category: 'artifact', content: 'codex_cli_adapter.py' }],
+          messages: [
+            { id: 'msg-3', role: 'assistant', kind: 'assistant', content: '最终回答正文', actor_name: '单聊助手', created_at: '2026-04-08T10:01:00Z' },
+          ],
+        }
+      }
+      return {
+        id: 'session-1',
+        title: '历史会话',
+        updated_at: '2026-04-07T10:00:00Z',
+        message_count: 2,
+        summary: '此前已经确定页面结构。',
+        memory_items: [{ id: 'memory-1', category: 'goal', content: '做一个页面' }],
+        messages: [
+          { id: 'msg-1', role: 'user', kind: 'user', content: '做一个页面', created_at: '2026-04-07T10:00:00Z' },
+        ],
+      }
+    })
+
     render(<WorkspaceRunView workspace={{ id: 'chat-1', kind: 'chat', name: 'PetTrace', coordinator: { id: 'chat', name: '单聊助手' }, llm_profiles: [] }} />)
 
     await waitFor(() => {
       expect(workspaceApiMock.listSessions).toHaveBeenCalledWith('chat-1')
     })
 
-    expect(screen.getByRole('button', { name: /会话列表/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /会话列表/ }))
-    expect(await screen.findByText('历史会话')).toBeInTheDocument()
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    fireEvent.click(await screen.findByText(/近期会话/))
+
+    await waitFor(() => {
+      expect(workspaceApiMock.getSession).toHaveBeenCalledWith('chat-1', 'session-2')
+    })
+
+    expect(await screen.findByText('artifact: codex_cli_adapter.py')).toBeInTheDocument()
+    expect(await screen.findByText('最终回答正文')).toBeInTheDocument()
   })
 })

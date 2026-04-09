@@ -13,7 +13,7 @@ import signal
 import time
 from typing import Any
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 from server.infra.codex.codex_cli import build_codex_subprocess_env, detect_codex_path
 from server.support.app_logging import get_logger
@@ -64,7 +64,38 @@ class CodexCLIAdapter:
         return await self._run(messages)
 
     async def astream(self, messages: list[Any]):
-        yield await self._run(messages)
+        structured_output = not self._simple_output_mode or bool(self._tools)
+        if structured_output:
+            result = await self._run(messages)
+            yield AIMessageChunk(
+                content=result.content,
+                additional_kwargs=dict(getattr(result, "additional_kwargs", {}) or {}),
+                response_metadata=dict(getattr(result, "response_metadata", {}) or {}),
+                name=getattr(result, "name", None),
+                id=getattr(result, "id", None),
+                tool_calls=list(getattr(result, "tool_calls", None) or []),
+                invalid_tool_calls=list(getattr(result, "invalid_tool_calls", None) or []),
+                usage_metadata=getattr(result, "usage_metadata", None),
+                chunk_position="last",
+            )
+            return
+
+        if not self._codex_path:
+            raise ValueError("未检测到本机 codex CLI")
+
+        prompt = _build_exec_prompt(messages, self._tools, structured_output=False)
+        pending_delta = ""
+        async for delta in _stream_codex_text_with_retry(self._build_exec_args(prompt), self._work_dir or ""):
+            if not delta:
+                continue
+            if pending_delta:
+                yield AIMessageChunk(content=pending_delta)
+            pending_delta = delta
+
+        if not pending_delta:
+            raise ValueError("Codex CLI 返回了空结果")
+
+        yield AIMessageChunk(content=pending_delta, chunk_position="last")
 
     async def _run(self, messages: list[Any]) -> AIMessage:
         if not self._codex_path:
@@ -272,7 +303,7 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
                     f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒，重试 {attempts} 次仍失败）。\n"
                     "这通常意味着 codex exec 进程卡住（例如 CLI 版本缺陷或本机环境兼容性问题），建议先升级 Codex CLI 后重试。"
                 )
-        except asyncio.CancelledError:
+        except BaseException:
             if process is not None:
                 logger.warning(
                     "codex_exec_cancelled attempt=%s/%s pid=%s",
@@ -310,6 +341,120 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
     raise ValueError("Codex CLI 执行失败")
 
 
+async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
+    attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
+    for attempt in range(1, attempts + 1):
+        process = None
+        started_at = time.monotonic()
+        emitted_any = False
+        stdout_chunks: list[bytes] = []
+        stderr = b""
+        try:
+            logger.info(
+                "codex_exec_stream_start attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
+                attempt,
+                attempts,
+                _CODEX_EXEC_TIMEOUT_SECONDS,
+                work_dir,
+                len(args),
+            )
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=work_dir or None,
+                env=_build_codex_env(),
+                start_new_session=True,
+            )
+            stdout_stream = getattr(process, "stdout", None)
+            if stdout_stream is None or not hasattr(stdout_stream, "readline"):
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                )
+                stdout_chunks.append(stdout or b"")
+            else:
+                while True:
+                    line = await asyncio.wait_for(
+                        stdout_stream.readline(),
+                        timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
+                    )
+                    if not line:
+                        break
+                    stdout_chunks.append(line)
+                    event = _parse_json_event_line(line.decode("utf-8", errors="ignore"))
+                    if not event:
+                        continue
+                    delta = _extract_stream_text_delta(event)
+                    if not delta:
+                        continue
+                    emitted_any = True
+                    yield delta
+
+                await asyncio.wait_for(process.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "codex_exec_stream_timeout attempt=%s/%s pid=%s elapsed_ms=%s",
+                attempt,
+                attempts,
+                getattr(process, "pid", 0),
+                int((time.monotonic() - started_at) * 1000),
+            )
+            if process is not None:
+                await _terminate_process(process)
+            if attempt < attempts and not emitted_any:
+                continue
+            raise ValueError(
+                f"Codex CLI 执行超时（>{_CODEX_EXEC_TIMEOUT_SECONDS} 秒，重试 {attempts} 次仍失败）。\n"
+                "这通常意味着 codex exec 进程卡住（例如 CLI 版本缺陷或本机环境兼容性问题），建议先升级 Codex CLI 后重试。"
+            )
+        except BaseException:
+            if process is not None:
+                logger.warning(
+                    "codex_exec_stream_cancelled attempt=%s/%s pid=%s",
+                    attempt,
+                    attempts,
+                    getattr(process, "pid", 0),
+                )
+                await _terminate_process(process)
+            raise
+
+        stdout = b"".join(stdout_chunks)
+        logger.info(
+            "codex_exec_stream_end attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
+            attempt,
+            attempts,
+            getattr(process, "pid", 0),
+            getattr(process, "returncode", None),
+            int((time.monotonic() - started_at) * 1000),
+            len(stdout or b""),
+            len(stderr or b""),
+        )
+        stdout_text = stdout.decode("utf-8", errors="ignore")
+        stderr_text = stderr.decode("utf-8", errors="ignore")
+        if process is None:
+            raise ValueError("Codex CLI 执行失败")
+        if process.returncode != 0:
+            message = _format_codex_error(stdout_text, stderr_text)
+            if attempt < attempts and not emitted_any and _is_retryable_codex_error(message):
+                continue
+            raise ValueError(message)
+
+        if emitted_any:
+            return
+
+        assistant_text = _extract_assistant_text(stdout_text)
+        if assistant_text:
+            yield assistant_text
+            return
+        if attempt < attempts:
+            continue
+        raise ValueError("Codex CLI 返回了空结果")
+
+    raise ValueError("Codex CLI 执行失败")
+
+
 async def _read_process_output(process: asyncio.subprocess.Process) -> tuple[bytes, bytes]:
     stdout_stream = getattr(process, "stdout", None)
     if stdout_stream is None or not hasattr(stdout_stream, "readline"):
@@ -337,7 +482,7 @@ def _is_retryable_codex_error(message: str) -> bool:
 def _extract_assistant_text(stdout_text: str) -> str:
     events = _parse_jsonl_events(stdout_text)
     if not events:
-        return stdout_text.strip()
+        return _strip_plaintext_noise(stdout_text)
 
     messages: list[str] = []
     for event in events:
@@ -356,10 +501,21 @@ def _parse_jsonl_events(stdout_text: str) -> list[dict[str, Any]]:
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
-            return []
+            continue
         if isinstance(payload, dict):
             events.append(payload)
     return events
+
+
+def _parse_json_event_line(raw_line: str) -> dict[str, Any] | None:
+    line = (raw_line or "").strip()
+    if not line:
+        return None
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _extract_event_text(event: dict[str, Any]) -> str:
@@ -375,6 +531,19 @@ def _extract_event_text(event: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_stream_text_delta(event: dict[str, Any]) -> str:
+    event_type = str(event.get("type", "")).strip()
+    if event_type in {"agent_message_delta", "assistant_message_delta"}:
+        return _coerce_text(event.get("delta") or event.get("text") or event.get("content"))
+    if event_type in {"agent_message_content_delta", "assistant_message_content_delta"}:
+        return _coerce_text(event.get("delta"))
+    if event_type == "item.updated":
+        item = event.get("item")
+        if isinstance(item, dict) and str(item.get("type", "")).strip() == "agent_message":
+            return _coerce_text(item.get("delta"))
+    return ""
+
+
 def _coerce_text(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
@@ -382,6 +551,18 @@ def _coerce_text(value: Any) -> str:
         parts = [str(item.get("text", "")).strip() for item in value if isinstance(item, dict)]
         return "\n".join(part for part in parts if part).strip()
     return str(value or "").strip()
+
+
+def _strip_plaintext_noise(stdout_text: str) -> str:
+    lines = []
+    for raw_line in stdout_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("Reading additional input from stdin"):
+            continue
+        lines.append(raw_line)
+    return "\n".join(lines).strip()
 
 
 def _extract_structured_result(text: str) -> dict[str, Any]:

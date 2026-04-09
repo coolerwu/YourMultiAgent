@@ -13,7 +13,9 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  MenuFoldOutlined,
   MenuOutlined,
+  MenuUnfoldOutlined,
   PlusOutlined,
   RobotOutlined,
   SettingOutlined,
@@ -194,11 +196,26 @@ function NavCard({ icon, title, subtitle, active, onClick }) {
   )
 }
 
+function SidebarIconButton({ active, icon, tooltip, onClick }) {
+  return (
+    <Tooltip placement="right" title={tooltip}>
+      <Button
+        type="text"
+        aria-label={tooltip}
+        onClick={onClick}
+        className={`dashboard-icon-button ${active ? 'dashboard-icon-button-active' : ''}`}
+        icon={icon}
+      />
+    </Tooltip>
+  )
+}
+
 function pickDefaultWorkspace(items) {
   return items.find((item) => item.kind === 'chat') ?? items[0] ?? null
 }
 
 export default function Dashboard() {
+  const storageKey = 'dashboard-sidebar-collapsed'
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
   const [workspaces, setWorkspaces] = useState([])
@@ -211,6 +228,10 @@ export default function Dashboard() {
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState('')
   const [managerMode, setManagerMode] = useState('workspace')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(storageKey) === '1'
+  })
 
   const loadWorkspaces = async ({ preservePanel = false } = {}) => {
     try {
@@ -233,6 +254,11 @@ export default function Dashboard() {
   useEffect(() => {
     loadWorkspaces()
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(storageKey, sidebarCollapsed ? '1' : '0')
+  }, [sidebarCollapsed])
 
   const handleWorkspaceSaved = (workspace) => {
     loadWorkspaces()
@@ -262,9 +288,39 @@ export default function Dashboard() {
   const chatSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind === 'chat'), [workspaces])
   const orchestrationSpaces = useMemo(() => workspaces.filter((workspace) => workspace.kind !== 'chat'), [workspaces])
 
-  const renderSidebar = () => (
+  const renderCollapsedWorkspaceGroup = (items, section, kind) => (
+    <div className="dashboard-icon-group">
+      {items.map((workspace) => (
+        <SidebarIconButton
+          key={workspace.id}
+          tooltip={workspace.name}
+          active={activePanel === kind && activeWorkspace?.id === workspace.id}
+          icon={kind === 'chat' ? <CommentOutlined style={{ fontSize: 18 }} /> : <FolderOpenOutlined style={{ fontSize: 18 }} />}
+          onClick={() => {
+            setActiveWorkspace(workspace)
+            setActivePanel(kind)
+            setActiveTab('runner')
+            setMobileNavOpen(false)
+          }}
+        />
+      ))}
+      <SidebarIconButton
+        tooltip={section}
+        active={false}
+        icon={<PlusOutlined style={{ fontSize: 18 }} />}
+        onClick={() => {
+          setEditingWorkspace(null)
+          setManagerMode(kind)
+          setWsModalOpen(true)
+          setMobileNavOpen(false)
+        }}
+      />
+    </div>
+  )
+
+  const renderSidebar = (collapsed = false) => (
     <>
-      <div className="dashboard-brand">
+      <div className={`dashboard-brand ${collapsed ? 'dashboard-brand-collapsed' : ''}`}>
         <Space size={12}>
           <div
             style={{
@@ -280,115 +336,165 @@ export default function Dashboard() {
           >
             <RobotOutlined style={{ fontSize: 22 }} />
           </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 18, color: '#101828', lineHeight: 1.1 }}>Agent 智能体</div>
-            <div style={{ fontSize: 12, color: '#667085', marginTop: 3 }}>单主控 + 多 Worker</div>
-          </div>
+          {!collapsed && (
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 18, color: '#101828', lineHeight: 1.1 }}>Agent 智能体</div>
+              <div style={{ fontSize: 12, color: '#667085', marginTop: 3 }}>单主控 + 多 Worker</div>
+            </div>
+          )}
         </Space>
+        {!isMobile && (
+          <Tooltip title={collapsed ? '展开导航' : '折叠导航'}>
+            <Button
+              type="text"
+              aria-label={collapsed ? '展开导航' : '折叠导航'}
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+            />
+          </Tooltip>
+        )}
       </div>
 
-      <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>单聊</Text>
-        <Tooltip title="新建单聊目录">
-          <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
-        </Tooltip>
-      </div>
+      {collapsed ? (
+        <>
+          {renderCollapsedWorkspaceGroup(chatSpaces, '新建单聊目录', 'chat')}
+          {renderCollapsedWorkspaceGroup(orchestrationSpaces, '新建 Workspace', 'workspace')}
+          <div className="dashboard-icon-group">
+            <SidebarIconButton
+              tooltip="全局模型连接"
+              active={activePanel === 'providers'}
+              icon={<ApiOutlined style={{ fontSize: 18 }} />}
+              onClick={() => {
+                setActivePanel('providers')
+                setMobileNavOpen(false)
+              }}
+            />
+            <SidebarIconButton
+              tooltip="系统设置"
+              active={activePanel === 'system'}
+              icon={<SettingOutlined style={{ fontSize: 18 }} />}
+              onClick={() => {
+                setActivePanel('system')
+                setMobileNavOpen(false)
+              }}
+            />
+            <SidebarIconButton
+              tooltip="应用日志"
+              active={activePanel === 'app-log'}
+              icon={<FileTextOutlined style={{ fontSize: 18 }} />}
+              onClick={() => {
+                setActivePanel('app-log')
+                setMobileNavOpen(false)
+              }}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>单聊</Text>
+            <Tooltip title="新建单聊目录">
+              <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
+            </Tooltip>
+          </div>
 
-      <div>
-        {chatSpaces.map((workspace) => (
-          <WorkspaceCard
-            key={workspace.id}
-            workspace={workspace}
-            active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
-            deleting={deletingWorkspaceId === workspace.id}
-            onSelect={(ws) => {
-              setActiveWorkspace(ws)
-              setActivePanel('chat')
-              setActiveTab('runner')
+          <div>
+            {chatSpaces.map((workspace) => (
+              <WorkspaceCard
+                key={workspace.id}
+                workspace={workspace}
+                active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
+                deleting={deletingWorkspaceId === workspace.id}
+                onSelect={(ws) => {
+                  setActiveWorkspace(ws)
+                  setActivePanel('chat')
+                  setActiveTab('runner')
+                  setMobileNavOpen(false)
+                }}
+                onEditWorkspace={(ws) => {
+                  setEditingWorkspace(ws)
+                  setManagerMode('chat')
+                  setWsModalOpen(true)
+                  setMobileNavOpen(false)
+                }}
+                onDeleteWorkspace={handleWorkspaceDelete}
+              />
+            ))}
+          </div>
+
+          <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>WORKSPACES</Text>
+            <Tooltip title="新建 Workspace">
+              <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
+            </Tooltip>
+          </div>
+
+          <div>
+            {orchestrationSpaces.map((workspace) => (
+              <WorkspaceCard
+                key={workspace.id}
+                workspace={workspace}
+                active={activePanel === 'workspace' && activeWorkspace?.id === workspace.id}
+                deleting={deletingWorkspaceId === workspace.id}
+                onSelect={(ws) => {
+                  setActiveWorkspace(ws)
+                  setActivePanel('workspace')
+                  setActiveTab('runner')
+                  setMobileNavOpen(false)
+                }}
+                onEditWorkspace={(ws) => {
+                  setEditingWorkspace(ws)
+                  setManagerMode('workspace')
+                  setWsModalOpen(true)
+                  setMobileNavOpen(false)
+                }}
+                onDeleteWorkspace={handleWorkspaceDelete}
+              />
+            ))}
+          </div>
+
+          <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
+            <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>PROVIDERS</Text>
+          </div>
+
+          <NavCard
+            icon={<ApiOutlined style={{ fontSize: 18 }} />}
+            title="全局模型连接"
+            subtitle="统一管理 API Provider 和 Codex 登录"
+            active={activePanel === 'providers'}
+            onClick={() => {
+              setActivePanel('providers')
               setMobileNavOpen(false)
             }}
-            onEditWorkspace={(ws) => {
-              setEditingWorkspace(ws)
-              setManagerMode('chat')
-              setWsModalOpen(true)
-              setMobileNavOpen(false)
-            }}
-            onDeleteWorkspace={handleWorkspaceDelete}
           />
-        ))}
-      </div>
 
-      <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>WORKSPACES</Text>
-        <Tooltip title="新建 Workspace">
-          <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
-        </Tooltip>
-      </div>
+          <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
+            <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>SYSTEM</Text>
+          </div>
 
-      <div>
-        {orchestrationSpaces.map((workspace) => (
-          <WorkspaceCard
-            key={workspace.id}
-            workspace={workspace}
-            active={activePanel === 'workspace' && activeWorkspace?.id === workspace.id}
-            deleting={deletingWorkspaceId === workspace.id}
-            onSelect={(ws) => {
-              setActiveWorkspace(ws)
-              setActivePanel('workspace')
-              setActiveTab('runner')
+          <NavCard
+            icon={<SettingOutlined style={{ fontSize: 18 }} />}
+            title="系统设置"
+            subtitle="执行 Update Now 和管理 Codex 运行时"
+            active={activePanel === 'system'}
+            onClick={() => {
+              setActivePanel('system')
               setMobileNavOpen(false)
             }}
-            onEditWorkspace={(ws) => {
-              setEditingWorkspace(ws)
-              setManagerMode('workspace')
-              setWsModalOpen(true)
-              setMobileNavOpen(false)
-            }}
-            onDeleteWorkspace={handleWorkspaceDelete}
           />
-        ))}
-      </div>
 
-      <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
-        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>PROVIDERS</Text>
-      </div>
-
-      <NavCard
-        icon={<ApiOutlined style={{ fontSize: 18 }} />}
-        title="全局模型连接"
-        subtitle="统一管理 API Provider 和 Codex 登录"
-        active={activePanel === 'providers'}
-        onClick={() => {
-          setActivePanel('providers')
-          setMobileNavOpen(false)
-        }}
-      />
-
-      <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
-        <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>SYSTEM</Text>
-      </div>
-
-      <NavCard
-        icon={<SettingOutlined style={{ fontSize: 18 }} />}
-        title="系统设置"
-        subtitle="执行 Update Now 和管理 Codex 运行时"
-        active={activePanel === 'system'}
-        onClick={() => {
-          setActivePanel('system')
-          setMobileNavOpen(false)
-        }}
-      />
-
-      <NavCard
-        icon={<FileTextOutlined style={{ fontSize: 18 }} />}
-        title="应用日志"
-        subtitle="查看 app.log 和 AI 运行日志"
-        active={activePanel === 'app-log'}
-        onClick={() => {
-          setActivePanel('app-log')
-          setMobileNavOpen(false)
-        }}
-      />
+          <NavCard
+            icon={<FileTextOutlined style={{ fontSize: 18 }} />}
+            title="应用日志"
+            subtitle="查看 app.log 和 AI 运行日志"
+            active={activePanel === 'app-log'}
+            onClick={() => {
+              setActivePanel('app-log')
+              setMobileNavOpen(false)
+            }}
+          />
+        </>
+      )}
     </>
   )
 
@@ -396,11 +502,13 @@ export default function Dashboard() {
     <Layout className="dashboard-layout" style={{ overflow: 'hidden' }}>
       <Sider
         width={320}
+        collapsed={!isMobile && sidebarCollapsed}
+        collapsedWidth={92}
         theme="light"
         className="dashboard-sider"
         style={{ display: isMobile ? 'none' : 'block' }}
       >
-        {renderSidebar()}
+        {renderSidebar(sidebarCollapsed)}
       </Sider>
 
       <Content className="dashboard-content">
@@ -451,7 +559,7 @@ export default function Dashboard() {
         width={320}
         styles={{ body: { padding: 16, background: '#fcfcfd' } }}
       >
-        {renderSidebar()}
+        {renderSidebar(false)}
       </Drawer>
 
       <Suspense fallback={<ModalFallback />}>

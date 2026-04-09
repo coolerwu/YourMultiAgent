@@ -1,7 +1,7 @@
 import asyncio
 import json
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage
 
 import server.infra.llm.codex_cli_adapter as codex_cli_adapter
 from server.infra.llm.codex_cli_adapter import CodexCLIAdapter, _build_codex_env, _format_codex_error
@@ -32,6 +32,44 @@ def test_codex_adapter_disables_simple_mode_when_binding_tools():
     bound = adapter.bind_tools([{"name": "read_file"}])
 
     assert bound._simple_output_mode is False
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_astream_streams_simple_mode_deltas(monkeypatch):
+    adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
+
+    async def _fake_stream(_args, _work_dir):
+        yield "O"
+        yield "K"
+
+    monkeypatch.setattr(codex_cli_adapter, "_stream_codex_text_with_retry", _fake_stream)
+
+    chunks = [chunk async for chunk in adapter.astream([HumanMessage(content="hello")])]
+
+    assert len(chunks) == 2
+    assert isinstance(chunks[0], AIMessageChunk)
+    assert isinstance(chunks[0], AIMessageChunk)
+    assert chunks[0].content == "O"
+    assert chunks[0].chunk_position is None
+    assert chunks[1].content == "K"
+    assert chunks[1].chunk_position == "last"
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_astream_yields_single_final_chunk_for_structured_output(monkeypatch):
+    adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=False)
+
+    async def _fake_run(_messages):
+        return codex_cli_adapter.AIMessage(content="OK", tool_calls=[])
+
+    monkeypatch.setattr(adapter, "_run", _fake_run)
+
+    chunks = [chunk async for chunk in adapter.astream([HumanMessage(content="hello")])]
+
+    assert len(chunks) == 1
+    assert isinstance(chunks[0], AIMessageChunk)
+    assert chunks[0].content == "OK"
+    assert chunks[0].chunk_position == "last"
 
 
 def test_codex_adapter_build_exec_args_uses_configured_sandbox(monkeypatch):
@@ -161,6 +199,37 @@ class _RawProcess:
         return self.returncode
 
 
+class _LineReader:
+    def __init__(self, lines: list[str]) -> None:
+        self._lines = [line.encode("utf-8") for line in lines]
+
+    async def readline(self) -> bytes:
+        await asyncio.sleep(0)
+        if not self._lines:
+            return b""
+        return self._lines.pop(0)
+
+
+class _StreamingProcess:
+    def __init__(self, lines: list[str], returncode: int = 0) -> None:
+        self.returncode = None
+        self._target_returncode = returncode
+        self.stdout = _LineReader(lines)
+        self.killed = False
+        self.wait_called = False
+        self.pid = 12345
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    async def wait(self):
+        self.wait_called = True
+        if self.returncode is None:
+            self.returncode = self._target_returncode
+        return self.returncode
+
+
 @pytest.mark.asyncio
 async def test_codex_adapter_timeout_kills_subprocess(monkeypatch):
     process = _BlockingProcess()
@@ -273,3 +342,77 @@ async def test_codex_adapter_parses_actual_codex_jsonl_event(monkeypatch):
     result = await adapter.ainvoke([HumanMessage(content="hello")])
 
     assert result.content == "最终回答正文"
+
+
+@pytest.mark.asyncio
+async def test_codex_adapter_ignores_non_json_prefix_before_jsonl_events(monkeypatch):
+    jsonl_output = (
+        'Reading additional input from stdin...\n'
+        '{"type":"thread.started","thread_id":"019d6dc0-e939-75d3-937b-ae0e9c870dad"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"最终回答正文"}}\n'
+        '{"type":"turn.completed"}\n'
+    )
+
+    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+        return _RawProcess(jsonl_output)
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    adapter = CodexCLIAdapter(model="", codex_path="codex", simple_output_mode=True)
+
+    result = await adapter.ainvoke([HumanMessage(content="hello")])
+
+    assert result.content == "最终回答正文"
+
+
+@pytest.mark.asyncio
+async def test_stream_codex_text_with_retry_yields_message_deltas(monkeypatch):
+    process = _StreamingProcess(
+        [
+            '{"type":"thread.started","thread_id":"thread-1"}\n',
+            '{"type":"turn.started"}\n',
+            '{"type":"agent_message_delta","delta":"你"}\n',
+            '{"type":"agent_message_content_delta","delta":"好"}\n',
+            '{"type":"turn.completed"}\n',
+        ]
+    )
+
+    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+
+    deltas = [delta async for delta in codex_cli_adapter._stream_codex_text_with_retry(["codex", "exec"], "")]
+
+    assert deltas == ["你", "好"]
+    assert process.wait_called is True
+
+
+@pytest.mark.asyncio
+async def test_stream_codex_text_with_retry_falls_back_to_completed_message(monkeypatch):
+    process = _StreamingProcess(
+        [
+            '{"type":"thread.started","thread_id":"thread-1"}\n',
+            '{"type":"turn.started"}\n',
+            '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"最终回答"}}\n',
+            '{"type":"turn.completed"}\n',
+        ]
+    )
+
+    async def _fake_create_subprocess_exec(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(codex_cli_adapter.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+
+    deltas = [delta async for delta in codex_cli_adapter._stream_codex_text_with_retry(["codex", "exec"], "")]
+
+    assert deltas == ["最终回答"]
+    assert process.wait_called is True
+
+
+def test_extract_assistant_text_strips_plaintext_noise_when_no_json_events():
+    text = codex_cli_adapter._extract_assistant_text(
+        "Reading additional input from stdin...\n\n最终回答正文\n"
+    )
+
+    assert text == "最终回答正文"
