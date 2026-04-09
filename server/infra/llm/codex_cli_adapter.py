@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import pty
+import select
 import shutil
 import signal
 import time
@@ -358,31 +360,20 @@ async def _run_codex_with_retry(args: list[str], work_dir: str) -> str:
     raise ValueError("Codex CLI 执行失败")
 
 
-def _build_streaming_args(args: list[str]) -> list[str]:
-    """
-    构建用于流式输出的命令参数。
-    使用 stdbuf 强制行缓冲，确保 Codex 立即输出每一行。
-    """
-    # 检查 stdbuf 是否可用
-    stdbuf_path = os.environ.get("STDBUF_PATH", "stdbuf")
-    try:
-        import shutil
-        if shutil.which(stdbuf_path):
-            # -oL: stdout 行缓冲, -eL: stderr 行缓冲
-            return [stdbuf_path, "-oL", "-eL"] + args
-    except Exception:
-        pass
-    return args
-
-
 async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
+    """
+    使用 PTY 强制行缓冲，解决 Codex 在非 TTY 环境下全缓冲导致 readline 阻塞的问题。
+    """
     attempts = max(1, _CODEX_EXEC_MAX_ATTEMPTS)
     for attempt in range(1, attempts + 1):
         process = None
         started_at = time.monotonic()
         emitted_any = False
         stdout_chunks: list[bytes] = []
-        stderr = b""
+        stderr_chunks: list[bytes] = []
+        master_fd = None
+        slave_fd = None
+
         try:
             logger.info(
                 "codex_exec_stream_start attempt=%s/%s timeout=%ss work_dir=%s arg_count=%s",
@@ -392,43 +383,68 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
                 work_dir,
                 len(args),
             )
-            # 使用 stdbuf 强制行缓冲
-            buffered_args = _build_streaming_args(args)
+
+            # 使用 PTY 让 Codex 认为自己在终端中运行（强制行缓冲）
+            master_fd, slave_fd = pty.openpty()
+
             process = await asyncio.create_subprocess_exec(
-                *buffered_args,
+                *args,
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stdout=slave_fd,
+                stderr=slave_fd,
                 cwd=work_dir or None,
                 env=_build_codex_env(),
                 start_new_session=True,
             )
-            stdout_stream = getattr(process, "stdout", None)
-            if stdout_stream is None or not hasattr(stdout_stream, "readline"):
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
-                )
-                stdout_chunks.append(stdout or b"")
-            else:
-                while True:
-                    line = await asyncio.wait_for(
-                        stdout_stream.readline(),
-                        timeout=_CODEX_EXEC_TIMEOUT_SECONDS,
-                    )
-                    if not line:
-                        break
-                    stdout_chunks.append(line)
-                    event = _parse_json_event_line(line.decode("utf-8", errors="ignore"))
-                    if not event:
-                        continue
-                    delta = _extract_stream_text_delta(event)
-                    if not delta:
-                        continue
-                    emitted_any = True
-                    yield delta
 
-                await asyncio.wait_for(process.wait(), timeout=5)
+            os.close(slave_fd)
+            slave_fd = None
+
+            # 将 PTY master 转为非阻塞模式
+            os.set_blocking(master_fd, False)
+
+            loop = asyncio.get_event_loop()
+            buffer = b""
+
+            while True:
+                try:
+                    # 使用 select 等待数据可读
+                    readable, _, _ = await loop.run_in_executor(
+                        None,
+                        lambda: select.select([master_fd], [], [], 0.1)
+                    )
+
+                    if readable:
+                        chunk = os.read(master_fd, 4096)
+                        if not chunk:
+                            break
+                        buffer += chunk
+
+                        # 处理缓冲区中的完整行
+                        while b"\n" in buffer:
+                            line, buffer = buffer.split(b"\n", 1)
+                            line += b"\n"
+                            stdout_chunks.append(line)
+                            event = _parse_json_event_line(line.decode("utf-8", errors="ignore"))
+                            if event:
+                                delta = _extract_stream_text_delta(event)
+                                if delta:
+                                    emitted_any = True
+                                    yield delta
+
+                    # 检查进程是否结束
+                    if process.returncode is not None:
+                        break
+
+                except OSError:
+                    break
+
+            # 读取剩余数据
+            if buffer:
+                stdout_chunks.append(buffer)
+
+            await asyncio.wait_for(process.wait(), timeout=5)
+
         except asyncio.TimeoutError:
             logger.warning(
                 "codex_exec_stream_timeout attempt=%s/%s pid=%s elapsed_ms=%s",
@@ -437,6 +453,16 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
                 getattr(process, "pid", 0),
                 int((time.monotonic() - started_at) * 1000),
             )
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+            if slave_fd is not None:
+                try:
+                    os.close(slave_fd)
+                except OSError:
+                    pass
             if process is not None:
                 await _terminate_process(process)
             if attempt < attempts and not emitted_any:
@@ -446,6 +472,16 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
                 "这通常意味着 codex exec 进程卡住（例如 CLI 版本缺陷或本机环境兼容性问题），建议先升级 Codex CLI 后重试。"
             )
         except BaseException:
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+            if slave_fd is not None:
+                try:
+                    os.close(slave_fd)
+                except OSError:
+                    pass
             if process is not None:
                 logger.warning(
                     "codex_exec_stream_cancelled attempt=%s/%s pid=%s",
@@ -455,27 +491,38 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
                 )
                 await _terminate_process(process)
             raise
+        finally:
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
 
         stdout = b"".join(stdout_chunks)
+        stderr = b"".join(stderr_chunks)
         logger.info(
-            "codex_exec_stream_end attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s stderr_chars=%s",
+            "codex_exec_stream_end attempt=%s/%s pid=%s returncode=%s elapsed_ms=%s stdout_chars=%s",
             attempt,
             attempts,
             getattr(process, "pid", 0),
             getattr(process, "returncode", None),
             int((time.monotonic() - started_at) * 1000),
             len(stdout or b""),
-            len(stderr or b""),
         )
         stdout_text = stdout.decode("utf-8", errors="ignore")
-        stderr_text = stderr.decode("utf-8", errors="ignore")
         if process is None:
             raise ValueError("Codex CLI 执行失败")
         if process.returncode != 0:
-            message = _format_codex_error(stdout_text, stderr_text)
+            message = _format_codex_error(stdout_text, "")
             if attempt < attempts and not emitted_any and _is_retryable_codex_error(message):
                 continue
             raise ValueError(message)
+
+        # 如果没有产出任何 delta，但 stdout 有内容，尝试解析为最终输出
+        if not emitted_any and stdout_text.strip():
+            assistant_text = _extract_assistant_text(stdout_text)
+            if assistant_text:
+                yield assistant_text
 
         if emitted_any:
             return
