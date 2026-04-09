@@ -116,11 +116,12 @@ class AgentHarness:
         state = HarnessState(messages=list(init_messages))
 
         while state.current_step != HarnessStep.DONE:
-            yield {
-                "type": "step_changed",
-                "node": self._node_id,
-                "step": state.current_step.value,
-            }
+            # 内部步骤变更不对外暴露，减少前端干扰
+            # yield {
+            #     "type": "step_changed",
+            #     "node": self._node_id,
+            #     "step": state.current_step.value,
+            # }
 
             if state.current_step == HarnessStep.STEP:
                 state.current_step = decide_next_step(state, self._max_rounds).next_step

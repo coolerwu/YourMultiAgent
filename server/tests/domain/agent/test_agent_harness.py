@@ -92,8 +92,8 @@ async def test_agent_harness_runs_step_decide_execute_transition_decide_chain():
 
     events = [event async for event in harness.run([HumanMessage(content="分析 README")])]
 
-    steps = [event["step"] for event in events if event["type"] == "step_changed"]
-    assert steps[:5] == ["step", "decide", "execute", "transition", "decide"]
+    # step_changed 事件已移除，不再对外暴露
+    assert not any(event["type"] == "step_changed" for event in events)
     assert any(event["type"] == "tool_start" and event["tool"] == "read_file" for event in events)
     assert any(event["type"] == "tool_end" and event["tool"] == "read_file" for event in events)
     assert any(event["type"] == "text" and "读取完成" in event["content"] for event in events)
@@ -132,7 +132,7 @@ async def test_agent_harness_finalizes_after_max_rounds():
 
     events = [event async for event in harness.run([HumanMessage(content="分析 README")])]
 
-    steps = [event["step"] for event in events if event["type"] == "step_changed"]
-    assert steps == ["step", "decide", "execute", "transition", "finalize"]
+    # step_changed 事件已移除，不再对外暴露
+    assert not any(event["type"] == "step_changed" for event in events)
     assert events[-1]["type"] == "text"
     assert events[-1]["content"] == "最终总结"
