@@ -198,11 +198,18 @@ export default function AgentEditorPanel({
                       onChange={(profileId) => {
                         const profile = findLlmProfile(workspace, profileId)
                         if (!profile) return
-                        form.setFieldsValue({
+                        const updates = {
                           provider: profile.provider,
                           model: profile.model,
                           base_url: profile.base_url ?? '',
                           api_key: '',
+                        }
+                        form.setFieldsValue(updates)
+                        // 触发父组件更新，确保变更被保存
+                        emitChange({
+                          ...form.getFieldsValue(true),
+                          llm_profile_id: profileId,
+                          ...updates,
                         })
                       }}
                     >
