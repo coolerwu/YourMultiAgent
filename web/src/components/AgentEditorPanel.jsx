@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { graphApi } from '../utils/graphApi'
 import {
@@ -21,6 +21,33 @@ function buildPanelTitle(role, workspace) {
     return workspace?.kind === 'chat' ? '单聊助手' : '主控智能体'
   }
   return 'Worker 编辑器'
+}
+
+// 按类别分组工具
+function groupCapabilitiesByCategory(capabilities = []) {
+  const groups = {}
+  capabilities.forEach((cap) => {
+    let category = '其他'
+    if (cap.name.startsWith('git_')) category = 'Git'
+    else if (cap.name.startsWith('browser_')) category = '浏览器'
+    else if (cap.name.startsWith('http_')) category = 'HTTP'
+    else if (['read_file', 'write_file', 'list_dir'].includes(cap.name)) category = '文件'
+    else if (['run_command'].includes(cap.name)) category = '命令'
+
+    if (!groups[category]) groups[category] = []
+    groups[category].push(cap)
+  })
+  return Object.entries(groups)
+}
+
+// 获取工具类别标签
+function getCapabilityTag(capName) {
+  if (capName.startsWith('git_')) return { color: 'blue', text: 'Git' }
+  if (capName.startsWith('browser_')) return { color: 'purple', text: 'Browser' }
+  if (capName.startsWith('http_')) return { color: 'cyan', text: 'HTTP' }
+  if (['read_file', 'write_file', 'list_dir'].includes(capName)) return { color: 'green', text: '文件' }
+  if (['run_command'].includes(capName)) return { color: 'orange', text: '命令' }
+  return null
 }
 
 export default function AgentEditorPanel({
@@ -267,16 +294,42 @@ export default function AgentEditorPanel({
               <Input />
             </Form.Item>
           )}
-          <Space size={16} style={{ width: '100%' }} align="start">
-            <Form.Item name="temperature" label="Temperature">
-              <InputNumber min={0} max={2} step={0.1} style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="tools" label="工具" style={{ minWidth: 320, flex: 1 }}>
-              <Select mode="multiple" style={{ minWidth: 280 }}>
-                {capabilities.map((cap) => <Option key={cap.name} value={cap.name}>{cap.name}</Option>)}
-              </Select>
-            </Form.Item>
-          </Space>
+          <Form.Item name="temperature" label="Temperature" initialValue={0.7}>
+            <InputNumber min={0} max={2} step={0.1} style={{ width: 120 }} />
+          </Form.Item>
+          <Form.Item name="tools" label="工具">
+            <Select
+              mode="multiple"
+              style={{ width: '100%' }}
+              placeholder="选择允许使用的工具"
+              dropdownStyle={{ minWidth: 400 }}
+              listHeight={400}
+              maxTagCount={5}
+              maxTagTextLength={20}
+              filterOption={(input, option) =>
+                option?.value?.toLowerCase().includes(input.toLowerCase()) ||
+                option?.capDescription?.toLowerCase().includes(input.toLowerCase())
+              }
+              options={groupCapabilitiesByCategory(capabilities).flatMap(([category, caps]) => [
+                { label: <span style={{ fontWeight: 'bold', color: '#999' }}>—— {category} ——</span>, value: `__group_${category}`, disabled: true },
+                ...caps.map((cap) => ({
+                  value: cap.name,
+                  capDescription: cap.description,
+                  label: (
+                    <Space size={8}>
+                      {getCapabilityTag(cap.name) && (
+                        <Tag color={getCapabilityTag(cap.name).color} style={{ margin: 0, fontSize: 11 }}>
+                          {getCapabilityTag(cap.name).text}
+                        </Tag>
+                      )}
+                      <span>{cap.name}</span>
+                      <span style={{ color: '#999', fontSize: 12 }}>{cap.description}</span>
+                    </Space>
+                  ),
+                })),
+              ])}
+            />
+          </Form.Item>
         </Form>
       </Card>
 

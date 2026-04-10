@@ -49,6 +49,19 @@
   border-color: #b2ddff;
 }
 
+/* 紧凑列表项样式 */
+.dashboard-list-item:hover {
+  background: #f3f4f6;
+}
+
+.dashboard-list-item:hover .workspace-actions {
+  opacity: 1 !important;
+}
+
+.dashboard-list-item-active:hover {
+  background: #dbeafe;
+}
+
 .dashboard-icon-group {
   display: flex;
   flex-direction: column;

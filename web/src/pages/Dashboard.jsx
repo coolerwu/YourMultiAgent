@@ -9,8 +9,10 @@
 
 import {
   ApiOutlined,
+  CaretRightOutlined,
   CommentOutlined,
   DeleteOutlined,
+  EditOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   MenuFoldOutlined,
@@ -20,7 +22,7 @@ import {
   RobotOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { Button, Drawer, Grid, Layout, Popconfirm, Skeleton, Space, Tabs, Tooltip, Typography, message } from 'antd'
+import { Button, Collapse, Drawer, Grid, Layout, Popconfirm, Skeleton, Space, Tabs, Tooltip, Typography, message } from 'antd'
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
 import './Dashboard.css'
@@ -88,75 +90,69 @@ function buildTabItems(workspace, orchestrationVersion, onOrchestrationSaved) {
   ]
 }
 
-function WorkspaceCard({ workspace, active, deleting, onSelect, onEditWorkspace, onDeleteWorkspace }) {
+// 紧凑列表项（树形导航风格）
+function WorkspaceListItem({ workspace, active, deleting, onSelect, onEditWorkspace, onDeleteWorkspace }) {
   const isChat = workspace.kind === 'chat'
   return (
     <div
       onClick={() => onSelect(workspace)}
-      className={`dashboard-panel-card ${active ? 'dashboard-panel-card-active' : ''}`}
+      className={`dashboard-list-item ${active ? 'dashboard-list-item-active' : ''}`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '8px 12px',
+        margin: '2px 8px',
+        borderRadius: 6,
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+        borderLeft: active ? '3px solid #1677ff' : '3px solid transparent',
+        background: active ? '#e6f4ff' : 'transparent',
+      }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 10,
-            background: '#eef4ff',
-            color: '#1677ff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {isChat ? <CommentOutlined style={{ fontSize: 18 }} /> : <FolderOpenOutlined style={{ fontSize: 18 }} />}
+      {isChat
+        ? <CommentOutlined style={{ fontSize: 14, color: '#1677ff', flexShrink: 0 }} />
+        : <FolderOpenOutlined style={{ fontSize: 14, color: '#52c41a', flexShrink: 0 }} />}
+      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        <div style={{
+          fontWeight: active ? 600 : 500,
+          fontSize: 13,
+          color: active ? '#1677ff' : '#1f2937',
+          lineHeight: 1.3,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {workspace.name}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, color: '#101828', lineHeight: 1.2 }}>
-            {workspace.name}
-          </div>
-          <div style={{ fontSize: 11, color: '#667085', marginTop: 4 }}>
-            目录：{workspace.dir_name || 'workspace'}
-          </div>
-          <div style={{ fontSize: 11, color: '#98a2b3', marginTop: 2, wordBreak: 'break-all' }}>
-            {workspace.work_dir}
-          </div>
-          <div style={{ marginTop: 6 }}>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                height: 22,
-                padding: '0 8px',
-                borderRadius: 999,
-                background: '#f2f4f7',
-                color: '#667085',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              {isChat ? '单聊目录' : '单编排配置'}
-            </span>
-          </div>
+        <div style={{
+          fontSize: 11,
+          color: '#6b7280',
+          marginTop: 1,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {workspace.dir_name || 'workspace'}
         </div>
-        <Space size={2} onClick={(e) => e.stopPropagation()}>
-          <Tooltip title="编辑 Workspace">
-            <Button size="small" type="text" icon={<SettingOutlined />} onClick={() => onEditWorkspace(workspace)} />
-          </Tooltip>
-          <Popconfirm
-            title="删除 Workspace"
-            description={`确认删除「${workspace.name}」吗？`}
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true, loading: deleting }}
-            onConfirm={() => onDeleteWorkspace(workspace)}
-          >
-            <Tooltip title="删除 Workspace">
-              <Button size="small" type="text" danger loading={deleting} icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
       </div>
+      <Space size={0} onClick={(e) => e.stopPropagation()} style={{ opacity: 0, transition: 'opacity 0.2s' }} className="workspace-actions">
+        <Tooltip title="编辑">
+          <Button size="small" type="text" icon={<EditOutlined style={{ fontSize: 12 }} />} onClick={() => onEditWorkspace(workspace)} />
+        </Tooltip>
+        <Popconfirm
+          title="删除 Workspace"
+          description={`确认删除「${workspace.name}」吗？`}
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true, loading: deleting }}
+          onConfirm={() => onDeleteWorkspace(workspace)}
+        >
+          <Tooltip title="删除">
+            <Button size="small" type="text" danger loading={deleting} icon={<DeleteOutlined style={{ fontSize: 12 }} />} />
+          </Tooltip>
+        </Popconfirm>
+      </Space>
     </div>
   )
 }
@@ -391,67 +387,93 @@ export default function Dashboard() {
         </>
       ) : (
         <>
-          <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>单聊</Text>
-            <Tooltip title="新建单聊目录">
-              <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
-            </Tooltip>
-          </div>
-
-          <div>
-            {chatSpaces.map((workspace) => (
-              <WorkspaceCard
-                key={workspace.id}
-                workspace={workspace}
-                active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
-                deleting={deletingWorkspaceId === workspace.id}
-                onSelect={(ws) => {
-                  setActiveWorkspace(ws)
-                  setActivePanel('chat')
-                  setActiveTab('runner')
-                  setMobileNavOpen(false)
-                }}
-                onEditWorkspace={(ws) => {
-                  setEditingWorkspace(ws)
-                  setManagerMode('chat')
-                  setWsModalOpen(true)
-                  setMobileNavOpen(false)
-                }}
-                onDeleteWorkspace={handleWorkspaceDelete}
-              />
-            ))}
-          </div>
-
-          <div style={{ marginBottom: 12, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>WORKSPACES</Text>
-            <Tooltip title="新建 Workspace">
-              <Button icon={<PlusOutlined />} size="small" type="text" onClick={() => { setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
-            </Tooltip>
-          </div>
-
-          <div>
-            {orchestrationSpaces.map((workspace) => (
-              <WorkspaceCard
-                key={workspace.id}
-                workspace={workspace}
-                active={activePanel === 'workspace' && activeWorkspace?.id === workspace.id}
-                deleting={deletingWorkspaceId === workspace.id}
-                onSelect={(ws) => {
-                  setActiveWorkspace(ws)
-                  setActivePanel('workspace')
-                  setActiveTab('runner')
-                  setMobileNavOpen(false)
-                }}
-                onEditWorkspace={(ws) => {
-                  setEditingWorkspace(ws)
-                  setManagerMode('workspace')
-                  setWsModalOpen(true)
-                  setMobileNavOpen(false)
-                }}
-                onDeleteWorkspace={handleWorkspaceDelete}
-              />
-            ))}
-          </div>
+          {/* 分组折叠树形导航 */}
+          <Collapse
+            ghost
+            defaultActiveKey={['chat', 'workspaces']}
+            expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} style={{ fontSize: 10 }} />}
+            style={{ marginBottom: 8 }}
+            items={[
+              {
+                key: 'chat',
+                label: (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>单聊目录</span>
+                    <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 4 }}>({chatSpaces.length})</span>
+                  </div>
+                ),
+                extra: (
+                  <Tooltip title="新建单聊目录">
+                    <Button icon={<PlusOutlined style={{ fontSize: 12 }} />} size="small" type="text" onClick={(e) => { e.stopPropagation(); setEditingWorkspace(null); setManagerMode('chat'); setWsModalOpen(true) }} />
+                  </Tooltip>
+                ),
+                children: (
+                  <div style={{ padding: '4px 0' }}>
+                    {chatSpaces.map((workspace) => (
+                      <WorkspaceListItem
+                        key={workspace.id}
+                        workspace={workspace}
+                        active={activePanel === 'chat' && activeWorkspace?.id === workspace.id}
+                        deleting={deletingWorkspaceId === workspace.id}
+                        onSelect={(ws) => {
+                          setActiveWorkspace(ws)
+                          setActivePanel('chat')
+                          setActiveTab('runner')
+                          setMobileNavOpen(false)
+                        }}
+                        onEditWorkspace={(ws) => {
+                          setEditingWorkspace(ws)
+                          setManagerMode('chat')
+                          setWsModalOpen(true)
+                          setMobileNavOpen(false)
+                        }}
+                        onDeleteWorkspace={handleWorkspaceDelete}
+                      />
+                    ))}
+                  </div>
+                ),
+              },
+              {
+                key: 'workspaces',
+                label: (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>工作区</span>
+                    <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 4 }}>({orchestrationSpaces.length})</span>
+                  </div>
+                ),
+                extra: (
+                  <Tooltip title="新建 Workspace">
+                    <Button icon={<PlusOutlined style={{ fontSize: 12 }} />} size="small" type="text" onClick={(e) => { e.stopPropagation(); setEditingWorkspace(null); setManagerMode('workspace'); setWsModalOpen(true) }} />
+                  </Tooltip>
+                ),
+                children: (
+                  <div style={{ padding: '4px 0' }}>
+                    {orchestrationSpaces.map((workspace) => (
+                      <WorkspaceListItem
+                        key={workspace.id}
+                        workspace={workspace}
+                        active={activePanel === 'workspace' && activeWorkspace?.id === workspace.id}
+                        deleting={deletingWorkspaceId === workspace.id}
+                        onSelect={(ws) => {
+                          setActiveWorkspace(ws)
+                          setActivePanel('workspace')
+                          setActiveTab('runner')
+                          setMobileNavOpen(false)
+                        }}
+                        onEditWorkspace={(ws) => {
+                          setEditingWorkspace(ws)
+                          setManagerMode('workspace')
+                          setWsModalOpen(true)
+                          setMobileNavOpen(false)
+                        }}
+                        onDeleteWorkspace={handleWorkspaceDelete}
+                      />
+                    ))}
+                  </div>
+                ),
+              },
+            ]}
+          />
 
           <div style={{ margin: '18px 0 12px', padding: '0 4px' }}>
             <Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.08em' }}>PROVIDERS</Text>
