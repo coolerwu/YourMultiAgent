@@ -72,18 +72,18 @@ export default function AgentEditorPanel({
     reason: '',
   })
 
-  // Git 工作流配置（仅 Coordinator 显示）
-  const gitWorkflow = useMemo(() => {
-    if (role !== 'coordinator') return null
-    return normalizedAgent?.git_workflow ?? DEFAULT_GIT_WORKFLOW
-  }, [normalizedAgent, role])
-
   const panelTitle = useMemo(() => buildPanelTitle(role, workspace), [role, workspace])
   const llmProfiles = workspace?.llm_profiles ?? []
   const normalizedAgent = useMemo(
     () => normalizeAgentForWorkspace(normalizeAgentForRuntime(agent, workspace), workspace, role),
     [agent, role, workspace],
   )
+
+  // Git 工作流配置（仅 Coordinator 显示）
+  const gitWorkflow = useMemo(() => {
+    if (role !== 'coordinator') return null
+    return normalizedAgent?.git_workflow ?? DEFAULT_GIT_WORKFLOW
+  }, [normalizedAgent, role])
 
   useEffect(() => {
     form.setFieldsValue({
