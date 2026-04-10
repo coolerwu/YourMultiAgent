@@ -13,6 +13,7 @@ import {
   CommentOutlined,
   DeleteOutlined,
   EditOutlined,
+  FileOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   MenuFoldOutlined,
@@ -33,6 +34,7 @@ const ProviderManager = lazy(() => import('../components/ProviderManager'))
 const AppLogViewer = lazy(() => import('../components/AppLogViewer'))
 const SystemSettings = lazy(() => import('../components/SystemSettings'))
 const WorkerStatus = lazy(() => import('../components/WorkerStatus'))
+const WorkspaceFileManager = lazy(() => import('../components/WorkspaceFileManager'))
 const WorkspaceManager = lazy(() => import('../components/WorkspaceManager'))
 const WorkspaceOrchestrationEditor = lazy(() => import('../components/WorkspaceOrchestrationEditor'))
 const WorkspaceRunView = lazy(() => import('../components/WorkspaceRunView'))
@@ -87,6 +89,17 @@ function buildTabItems(workspace, orchestrationVersion, onOrchestrationSaved) {
         </Suspense>
       ),
     }] : []),
+    {
+      key: 'files',
+      label: '文件',
+      children: (
+        <Suspense fallback={<TabFallback />}>
+          <div className="dashboard-tab-pane dashboard-tab-pane-scroll" style={{ padding: 16 }}>
+            <WorkspaceFileManager workspace={workspace} />
+          </div>
+        </Suspense>
+      ),
+    },
   ]
 }
 

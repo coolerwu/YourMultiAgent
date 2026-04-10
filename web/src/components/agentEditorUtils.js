@@ -38,15 +38,29 @@ export function resolveRuntimeType(agent) {
   return agent?.provider === 'openai_codex' ? 'codex' : 'llm'
 }
 
+// 默认 Git 工作流配置
+export const DEFAULT_GIT_WORKFLOW = {
+  enabled: false,
+  baseBranch: 'main',
+  featureBranchPrefix: 'feature/',
+  autoCreateBranch: true,
+  autoCommit: true,
+  commitMessageTemplate: '[Agent] {{task_name}}',
+  prTitleTemplate: '[Agent] {{task_name}}',
+  prBodyTemplate: '## 任务描述\n{{task_description}}\n\n## 变更内容\n- 由 Agent 自动生成\n',
+  autoCreatePR: false,
+}
+
 export function emptyAgent(defaults, role) {
   const isChat = defaults?.kind === 'chat'
   const defaultProfile = getDefaultLlmProfile(defaults)
-  return {
+  const isCoordinator = role === 'coordinator'
+  const agent = {
     id: `${role}_${Date.now()}`,
-    name: role === 'coordinator' ? (isChat ? '单聊助手' : '主控智能体') : '新 Worker',
+    name: isCoordinator ? (isChat ? '单聊助手' : '主控智能体') : '新 Worker',
     provider: defaultProfile?.provider ?? 'anthropic',
     model: defaultProfile?.model ?? 'claude-sonnet-4-6',
-    system_prompt: role === 'coordinator'
+    system_prompt: isCoordinator
       ? (
         isChat
           ? '你是当前单聊目录中的长期助手。需要结合该目录下的历史会话摘要、结构化记忆和当前用户消息，连续地完成对话。如果需要产出文件或中间结果，统一写入当前目录或其子目录，并明确告知路径。不要虚构已执行的操作；工具不足时直接说明。'
@@ -60,9 +74,16 @@ export function emptyAgent(defaults, role) {
     codex_connection_id: '',
     base_url: defaultProfile?.base_url ?? '',
     api_key: '',
-    work_subdir: role === 'coordinator' ? (isChat ? '' : 'coordinator') : '',
+    work_subdir: isCoordinator ? (isChat ? '' : 'coordinator') : '',
     order: 0,
   }
+
+  // Coordinator 非 chat 类型添加 git_workflow 配置
+  if (isCoordinator && !isChat) {
+    agent.git_workflow = { ...DEFAULT_GIT_WORKFLOW }
+  }
+
+  return agent
 }
 
 export function sortWorkers(items = []) {

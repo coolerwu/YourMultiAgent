@@ -130,3 +130,85 @@ async def run_command(command: str, _context: dict = None) -> dict:
         return {"error": "命令执行超时（10s）"}
     except Exception as e:
         return {"error": str(e)}
+
+
+@capability("delete_file", "删除指定路径的文件（只能删除当前 Agent 工作目录内的文件）")
+async def delete_file(path: str, _context: dict = None) -> dict:
+    """
+    删除文件，只允许删除 work_dir 或 shared 目录内的文件。
+    防止路径遍历攻击（如 ../../etc/passwd）
+    """
+    context = _context or {}
+    work_dir = _get_work_dir(context)
+    shared_dir = _workspace_shared_dir(context)
+    try:
+        p = _resolve_path(
+            path,
+            work_dir,
+            allow_cross_read=False,
+            shared_dir=shared_dir,
+        )
+        if not p.exists():
+            return {"success": False, "error": f"文件不存在: {path}"}
+        if not p.is_file():
+            return {"success": False, "error": f"不是文件: {path}"}
+        p.unlink()
+        return {"success": True, "path": str(p), "message": f"已删除文件: {p.name}"}
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        return {"success": False, "error": f"删除失败: {str(e)}"}
+
+
+@capability("delete_dir", "删除指定路径的目录（只能删除当前 Agent 工作目录内的空目录）")
+async def delete_dir(path: str, recursive: bool = False, _context: dict = None) -> dict:
+    """
+    删除目录，只允许删除 work_dir 或 shared 目录内的目录。
+    默认只允许删除空目录，recursive=True 时可删除非空目录。
+    """
+    context = _context or {}
+    work_dir = _get_work_dir(context)
+    shared_dir = _workspace_shared_dir(context)
+    try:
+        p = _resolve_path(
+            path,
+            work_dir,
+            allow_cross_read=False,
+            shared_dir=shared_dir,
+        )
+        if not p.exists():
+            return {"success": False, "error": f"目录不存在: {path}"}
+        if not p.is_dir():
+            return {"success": False, "error": f"不是目录: {path}"}
+
+        # 安全检查：确保目录在允许的范围内
+        base = Path(work_dir).expanduser().resolve()
+        try:
+            p.relative_to(base)
+        except ValueError:
+            # 不在 work_dir 内，检查是否在 shared_dir 内
+            if shared_dir is not None:
+                try:
+                    p.relative_to(shared_dir)
+                except ValueError:
+                    raise PermissionError(
+                        f"删除操作只允许在当前 work_dir 或 workspace/shared: {base}"
+                    )
+            else:
+                raise PermissionError(
+                    f"删除操作只允许在当前 work_dir 或 workspace/shared: {base}"
+                )
+
+        if recursive:
+            import shutil
+            shutil.rmtree(p)
+            return {"success": True, "path": str(p), "message": f"已递归删除目录: {p.name}"}
+        else:
+            p.rmdir()  # 只能删除空目录
+            return {"success": True, "path": str(p), "message": f"已删除目录: {p.name}"}
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
+    except OSError as e:
+        return {"success": False, "error": f"目录可能不为空，如需强制删除请使用 recursive=true: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": f"删除失败: {str(e)}"}

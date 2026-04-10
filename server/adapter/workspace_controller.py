@@ -24,7 +24,8 @@ from server.app.agent.workspace_app_service import (
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
 from server.domain.agent.agent_entity import LLMProvider, WorkspaceKind
-from server.container import get_workspace_service
+from server.container import get_workspace_service, get_worker_router
+from server.infra.worker.worker_router import WorkerRouter
 
 class LLMProfileReq(BaseModel):
     id: str = ""
@@ -215,3 +216,69 @@ async def delete_session(
     if not ok:
         raise HTTPException(status_code=404, detail="Session 不存在")
     return {"success": True}
+
+
+# ── 文件管理端点 ─────────────────────────────────────────────
+
+class FileListReq(BaseModel):
+    path: str = "."
+
+
+class FileDeleteReq(BaseModel):
+    path: str
+    recursive: bool = False
+
+
+@router.get("/{workspace_id}/files")
+async def list_workspace_files(
+    workspace_id: str,
+    path: str = ".",
+    svc: WorkspaceAppService = Depends(get_workspace_service),
+    worker_router: WorkerRouter = Depends(get_worker_router),
+):
+    """列出 Workspace 工作目录下的文件和文件夹"""
+    workspace = await svc.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace 不存在")
+
+    from server.infra.worker.registry import invoke
+
+    context = {
+        "work_dir": workspace.work_dir,
+        "workspace_root": workspace.work_dir,
+    }
+    result = await invoke("list_dir", {"path": path}, context)
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/{workspace_id}/files")
+async def delete_workspace_file(
+    workspace_id: str,
+    req: FileDeleteReq,
+    svc: WorkspaceAppService = Depends(get_workspace_service),
+):
+    """删除 Workspace 工作目录下的文件或文件夹"""
+    workspace = await svc.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace 不存在")
+
+    from server.infra.worker.registry import invoke
+
+    context = {
+        "work_dir": workspace.work_dir,
+        "workspace_root": workspace.work_dir,
+    }
+
+    # 先尝试作为文件删除
+    result = await invoke("delete_file", {"path": req.path}, context)
+
+    # 如果失败（不是文件或文件不存在），尝试作为目录删除
+    if not result.get("success"):
+        result = await invoke("delete_dir", {"path": req.path, "recursive": req.recursive}, context)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "删除失败"))
+    return result

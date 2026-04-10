@@ -17,7 +17,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from server.infra.worker.registry import capability
+from ..registry import capability
 
 
 def _get_work_dir(context: dict[str, Any] | None) -> str:
@@ -350,3 +350,73 @@ async def git_diff(
         args.append(str(target))
 
     return _run_git_command(args, cwd)
+
+
+@capability("git_push", "推送本地分支到远程仓库（git push）")
+async def git_push(
+    remote: str = "origin",
+    branch: str = "",
+    force: bool = False,
+    set_upstream: bool = False,
+    _context: dict[str, Any] | None = None
+) -> dict:
+    """
+    推送本地分支到远程仓库。
+
+    Args:
+        remote: 远程仓库名（默认 origin）
+        branch: 要推送的分支名（默认当前分支）
+        force: 强制推送（--force-with-lease，默认 False）
+        set_upstream: 设置上游分支（-u，默认 False）
+    """
+    context = _context or {}
+    work_dir = _get_work_dir(context)
+    cwd = str(Path(work_dir).expanduser().resolve())
+
+    args = ["push"]
+    if force:
+        args.append("--force-with-lease")
+    if set_upstream:
+        args.append("-u")
+    if remote:
+        args.append(remote)
+    if branch:
+        args.append(branch)
+
+    return _run_git_command(args, cwd, timeout=60)
+
+
+@capability("git_merge", "合并指定分支到当前分支（git merge）")
+async def git_merge(
+    branch: str,
+    message: str = "",
+    no_ff: bool = False,
+    squash: bool = False,
+    _context: dict[str, Any] | None = None
+) -> dict:
+    """
+    将指定分支合并到当前分支。
+
+    Args:
+        branch: 要合并的分支名
+        message: 合并提交信息（可选）
+        no_ff: 禁用快进合并（--no-ff，默认 False）
+        squash: 压缩合并（--squash，默认 False）
+    """
+    context = _context or {}
+    work_dir = _get_work_dir(context)
+    cwd = str(Path(work_dir).expanduser().resolve())
+
+    if not branch:
+        return {"error": "必须指定要合并的分支名"}
+
+    args = ["merge"]
+    if no_ff:
+        args.append("--no-ff")
+    if squash:
+        args.append("--squash")
+    if message:
+        args.extend(["-m", message])
+    args.append(branch)
+
+    return _run_git_command(args, cwd, check=True)

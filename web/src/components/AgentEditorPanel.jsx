@@ -1,10 +1,11 @@
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message, Collapse } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { graphApi } from '../utils/graphApi'
 import {
   applyRuntimeSelection,
   DEFAULT_CODEX_MODEL,
   DEFAULT_CODEX_MODEL_PLACEHOLDER,
+  DEFAULT_GIT_WORKFLOW,
   findLlmProfile,
   getDefaultLlmProfile,
   MODEL_RUNTIME_OPTIONS,
@@ -12,6 +13,8 @@ import {
   normalizeAgentForWorkspace,
   resolveRuntimeType,
 } from './agentEditorUtils'
+
+const { Panel } = Collapse
 
 const { Option } = Select
 const { Text } = Typography
@@ -29,6 +32,7 @@ function groupCapabilitiesByCategory(capabilities = []) {
   capabilities.forEach((cap) => {
     let category = '其他'
     if (cap.name.startsWith('git_')) category = 'Git'
+    else if (cap.name.startsWith('gh_')) category = 'GitHub'
     else if (cap.name.startsWith('browser_')) category = '浏览器'
     else if (cap.name.startsWith('http_')) category = 'HTTP'
     else if (['read_file', 'write_file', 'list_dir'].includes(cap.name)) category = '文件'
@@ -43,9 +47,10 @@ function groupCapabilitiesByCategory(capabilities = []) {
 // 获取工具类别标签
 function getCapabilityTag(capName) {
   if (capName.startsWith('git_')) return { color: 'blue', text: 'Git' }
+  if (capName.startsWith('gh_')) return { color: 'black', text: 'GitHub' }
   if (capName.startsWith('browser_')) return { color: 'purple', text: 'Browser' }
   if (capName.startsWith('http_')) return { color: 'cyan', text: 'HTTP' }
-  if (['read_file', 'write_file', 'list_dir'].includes(capName)) return { color: 'green', text: '文件' }
+  if (['read_file', 'write_file', 'list_dir', 'delete_file', 'delete_dir'].includes(capName)) return { color: 'green', text: '文件' }
   if (['run_command'].includes(capName)) return { color: 'orange', text: '命令' }
   return null
 }
@@ -66,6 +71,12 @@ export default function AgentEditorPanel({
     optimizedPrompt: '',
     reason: '',
   })
+
+  // Git 工作流配置（仅 Coordinator 显示）
+  const gitWorkflow = useMemo(() => {
+    if (role !== 'coordinator') return null
+    return normalizedAgent?.git_workflow ?? DEFAULT_GIT_WORKFLOW
+  }, [normalizedAgent, role])
 
   const panelTitle = useMemo(() => buildPanelTitle(role, workspace), [role, workspace])
   const llmProfiles = workspace?.llm_profiles ?? []
@@ -89,6 +100,14 @@ export default function AgentEditorPanel({
     }, workspace), workspace, role)
     delete nextAgent.runtime_type
     onChange(nextAgent)
+  }
+
+  const handleGitWorkflowChange = (updates) => {
+    const nextWorkflow = { ...gitWorkflow, ...updates }
+    emitChange({
+      ...form.getFieldsValue(true),
+      git_workflow: nextWorkflow,
+    })
   }
 
   const openPromptOptimizer = async () => {
@@ -331,6 +350,124 @@ export default function AgentEditorPanel({
             />
           </Form.Item>
         </Form>
+
+        {/* Git 工作流配置 - 仅 Coordinator 显示 */}
+        {role === 'coordinator' && workspace?.kind !== 'chat' && gitWorkflow && (
+          <Card
+            title="Git 工作流"
+            size="small"
+            style={{ marginTop: 16 }}
+            extra={
+              <Checkbox
+                checked={gitWorkflow.enabled}
+                onChange={(e) => handleGitWorkflowChange({ enabled: e.target.checked })}
+              >
+                启用
+              </Checkbox>
+            }
+          >
+            <Collapse ghost activeKey={gitWorkflow.enabled ? ['git-workflow'] : []}>
+              <Panel key="git-workflow" header={null} showArrow={false}>
+                <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>基础分支</Text>
+                      <Input
+                        value={gitWorkflow.baseBranch}
+                        onChange={(e) => handleGitWorkflowChange({ baseBranch: e.target.value })}
+                        placeholder="main 或 master"
+                        size="small"
+                      />
+                    </div>
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>功能分支前缀</Text>
+                      <Input
+                        value={gitWorkflow.featureBranchPrefix}
+                        onChange={(e) => handleGitWorkflowChange({ featureBranchPrefix: e.target.value })}
+                        placeholder="feature/"
+                        size="small"
+                      />
+                    </div>
+                  </div>
+
+                  <Space size={16}>
+                    <Checkbox
+                      checked={gitWorkflow.autoCreateBranch}
+                      onChange={(e) => handleGitWorkflowChange({ autoCreateBranch: e.target.checked })}
+                    >
+                      自动创建分支
+                    </Checkbox>
+                    <Checkbox
+                      checked={gitWorkflow.autoCommit}
+                      onChange={(e) => handleGitWorkflowChange({ autoCommit: e.target.checked })}
+                    >
+                      自动提交
+                    </Checkbox>
+                    <Checkbox
+                      checked={gitWorkflow.autoCreatePR}
+                      onChange={(e) => handleGitWorkflowChange({ autoCreatePR: e.target.checked })}
+                    >
+                      自动创建 PR
+                    </Checkbox>
+                  </Space>
+
+                  {gitWorkflow.autoCommit && (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>提交信息模板</Text>
+                      <Input
+                        value={gitWorkflow.commitMessageTemplate}
+                        onChange={(e) => handleGitWorkflowChange({ commitMessageTemplate: e.target.value })}
+                        placeholder="[Agent] {{task_name}}"
+                        size="small"
+                      />
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        可用变量: {'{{'}task_name{'}}'}, {'{{'}task_description{'}}'}
+                      </Text>
+                    </div>
+                  )}
+
+                  {gitWorkflow.autoCreatePR && (
+                    <>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>PR 标题模板</Text>
+                        <Input
+                          value={gitWorkflow.prTitleTemplate}
+                          onChange={(e) => handleGitWorkflowChange({ prTitleTemplate: e.target.value })}
+                          placeholder="[Agent] {{task_name}}"
+                          size="small"
+                        />
+                      </div>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>PR 描述模板</Text>
+                        <Input.TextArea
+                          value={gitWorkflow.prBodyTemplate}
+                          onChange={(e) => handleGitWorkflowChange({ prBodyTemplate: e.target.value })}
+                          placeholder="## 任务描述\n{{task_description}}\n\n## 变更内容\n由 Agent 自动生成"
+                          rows={4}
+                          size="small"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="工作流说明"
+                    description={
+                      <Space direction="vertical" size={4}>
+                        <Text style={{ fontSize: 12 }}>1. 开始时自动从基础分支创建功能分支</Text>
+                        <Text style={{ fontSize: 12 }}>2. 开发完成后自动提交更改</Text>
+                        <Text style={{ fontSize: 12 }}>3. 推送到远程仓库</Text>
+                        <Text style={{ fontSize: 12 }}>4. 自动创建 Pull Request（可选）</Text>
+                      </Space>
+                    }
+                  />
+                </Space>
+              </Panel>
+            </Collapse>
+          </Card>
+        )}
       </Card>
 
       <Modal

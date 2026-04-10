@@ -16,7 +16,9 @@ from server.infra.worker.handlers.git_tool import (
     git_commit,
     git_diff,
     git_log,
+    git_merge,
     git_pull,
+    git_push,
     git_status,
 )
 
@@ -278,3 +280,100 @@ async def test_git_pull(tmp_path):
     # 验证新文件已拉取
     assert (local / "new.txt").exists()
     assert (local / "new.txt").read_text() == "new content"
+
+
+@pytest.mark.asyncio
+async def test_git_push(tmp_path):
+    """测试 git push"""
+    # 创建远程仓库
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    subprocess.run(["git", "init", "--bare"], cwd=str(remote), capture_output=True, check=True)
+
+    # 创建本地仓库
+    local = tmp_path / "local"
+    local.mkdir()
+    subprocess.run(["git", "clone", str(remote), str(local)], capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(local), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(local), capture_output=True)
+
+    # 创建提交
+    (local / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "."], cwd=str(local), capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(local), capture_output=True, check=True)
+
+    # 推送
+    result = await git_push(remote="origin", _context={"work_dir": str(local)})
+    assert result["returncode"] == 0
+
+    # 验证远程仓库有提交
+    result = subprocess.run(["git", "log", "--oneline"], cwd=str(remote), capture_output=True, text=True)
+    assert "initial" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_git_push_with_upstream(tmp_path):
+    """测试 git push -u 设置上游分支"""
+    # 创建远程仓库
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    subprocess.run(["git", "init", "--bare"], cwd=str(remote), capture_output=True, check=True)
+
+    # 创建本地仓库
+    local = tmp_path / "local"
+    local.mkdir()
+    subprocess.run(["git", "clone", str(remote), str(local)], capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(local), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(local), capture_output=True)
+
+    # 创建新分支并提交
+    subprocess.run(["git", "checkout", "-b", "feature/test"], cwd=str(local), capture_output=True, check=True)
+    (local / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "."], cwd=str(local), capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "feature commit"], cwd=str(local), capture_output=True, check=True)
+
+    # 推送并设置上游
+    result = await git_push(remote="origin", branch="feature/test", set_upstream=True, _context={"work_dir": str(local)})
+    assert result["returncode"] == 0
+
+    # 验证分支已推送到远程
+    result = subprocess.run(["git", "branch", "-r"], cwd=str(local), capture_output=True, text=True)
+    assert "origin/feature/test" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_git_merge(tmp_path):
+    """测试 git merge"""
+    # 初始化 Git 仓库
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), capture_output=True)
+
+    # 创建初始提交
+    (tmp_path / "file.txt").write_text("main content")
+    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=str(tmp_path), capture_output=True, check=True)
+
+    # 创建 feature 分支并添加更改
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=str(tmp_path), capture_output=True, check=True)
+    (tmp_path / "feature.txt").write_text("feature content")
+    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "feature commit"], cwd=str(tmp_path), capture_output=True, check=True)
+
+    # 切回 main 分支并合并（使用 no_ff 确保产生合并提交）
+    subprocess.run(["git", "checkout", "main"], cwd=str(tmp_path), capture_output=True, check=True)
+    result = await git_merge(branch="feature", message="Merge feature branch", no_ff=True, _context={"work_dir": str(tmp_path)})
+    assert result["returncode"] == 0
+
+    # 验证合并成功
+    result = subprocess.run(["git", "log", "--oneline"], cwd=str(tmp_path), capture_output=True, text=True)
+    assert "Merge feature branch" in result.stdout
+    assert (tmp_path / "feature.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_git_merge_empty_branch():
+    """测试 git_merge 不指定分支时返回错误"""
+    result = await git_merge(branch="")
+    assert "error" in result
+    assert "必须指定要合并的分支名" in result["error"]

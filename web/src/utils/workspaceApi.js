@@ -28,4 +28,8 @@ export const workspaceApi = {
   loginCodexConnection: (id) => api.post(`/api/settings/codex-connections/${id}/login`, {}),
   run: (id, payload, onChunk, onDone, onError) =>
     wsRun(`/ws/workspaces/${id}/run`, payload, onChunk, onDone, onError),
+
+  // 文件管理
+  listFiles: (id, path = '.') => api.get(`/api/workspaces/${id}/files?path=${encodeURIComponent(path)}`),
+  deleteFile: (id, path, recursive = false) => api.delete(`/api/workspaces/${id}/files`, { path, recursive }),
 }
