@@ -41,6 +41,7 @@ export function resolveRuntimeType(agent) {
 // 默认 Git 工作流配置
 export const DEFAULT_GIT_WORKFLOW = {
   enabled: false,
+  repoUrl: '',
   baseBranch: 'main',
   featureBranchPrefix: 'feature/',
   autoCreateBranch: true,
@@ -49,6 +50,7 @@ export const DEFAULT_GIT_WORKFLOW = {
   prTitleTemplate: '[Agent] {{task_name}}',
   prBodyTemplate: '## 任务描述\n{{task_description}}\n\n## 变更内容\n- 由 Agent 自动生成\n',
   autoCreatePR: false,
+  requireReview: true,
 }
 
 export function emptyAgent(defaults, role) {

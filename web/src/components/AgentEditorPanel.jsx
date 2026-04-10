@@ -369,6 +369,40 @@ export default function AgentEditorPanel({
             <Collapse ghost activeKey={gitWorkflow.enabled ? ['git-workflow'] : []}>
               <Panel key="git-workflow" header={null} showArrow={false}>
                 <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                  {/* 仓库地址 */}
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>仓库地址</Text>
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Input
+                        value={gitWorkflow.repoUrl}
+                        onChange={(e) => handleGitWorkflowChange({ repoUrl: e.target.value })}
+                        placeholder="https://github.com/owner/repo.git 或本地路径"
+                        size="small"
+                      />
+                      <Button
+                        size="small"
+                        onClick={async () => {
+                          if (!gitWorkflow.repoUrl) {
+                            message.warning('请先输入仓库地址')
+                            return
+                          }
+                          // 简单验证：检查是否是有效的 git 仓库地址格式
+                          const isValid = gitWorkflow.repoUrl.match(/^(https?:\/\/|git@|\.\/|\.\.|\/|[a-zA-Z]:)/)
+                          if (!isValid) {
+                            message.error('仓库地址格式不正确')
+                            return
+                          }
+                          message.success('仓库地址格式有效')
+                        }}
+                      >
+                        验证
+                      </Button>
+                    </Space.Compact>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      支持 HTTPS、SSH 或本地路径。留空则使用当前工作目录的仓库
+                    </Text>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <div>
                       <Text type="secondary" style={{ fontSize: 12 }}>基础分支</Text>
@@ -390,7 +424,7 @@ export default function AgentEditorPanel({
                     </div>
                   </div>
 
-                  <Space size={16}>
+                  <Space size={16} wrap>
                     <Checkbox
                       checked={gitWorkflow.autoCreateBranch}
                       onChange={(e) => handleGitWorkflowChange({ autoCreateBranch: e.target.checked })}
@@ -408,6 +442,12 @@ export default function AgentEditorPanel({
                       onChange={(e) => handleGitWorkflowChange({ autoCreatePR: e.target.checked })}
                     >
                       自动创建 PR
+                    </Checkbox>
+                    <Checkbox
+                      checked={gitWorkflow.requireReview}
+                      onChange={(e) => handleGitWorkflowChange({ requireReview: e.target.checked })}
+                    >
+                      需要 Code Review
                     </Checkbox>
                   </Space>
 
@@ -456,10 +496,12 @@ export default function AgentEditorPanel({
                     message="工作流说明"
                     description={
                       <Space direction="vertical" size={4}>
-                        <Text style={{ fontSize: 12 }}>1. 开始时自动从基础分支创建功能分支</Text>
-                        <Text style={{ fontSize: 12 }}>2. 开发完成后自动提交更改</Text>
-                        <Text style={{ fontSize: 12 }}>3. 推送到远程仓库</Text>
-                        <Text style={{ fontSize: 12 }}>4. 自动创建 Pull Request（可选）</Text>
+                        <Text style={{ fontSize: 12 }}>1. 配置仓库地址（留空使用当前目录仓库）</Text>
+                        <Text style={{ fontSize: 12 }}>2. 开始时自动从基础分支创建功能分支</Text>
+                        <Text style={{ fontSize: 12 }}>3. 开发完成后自动提交更改</Text>
+                        <Text style={{ fontSize: 12 }}>4. 推送到远程仓库</Text>
+                        <Text style={{ fontSize: 12 }}>5. 自动创建 Pull Request（可选）</Text>
+                        <Text style={{ fontSize: 12 }}>6. 开启 Code Review 后 PR 需要人工审核才能合并</Text>
                       </Space>
                     }
                   />
