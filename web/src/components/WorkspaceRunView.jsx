@@ -1,5 +1,5 @@
 import Lottie from 'lottie-react'
-import { CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons'
+import { CopyOutlined, DeleteOutlined, DownOutlined, MessageOutlined, PlusOutlined, RightOutlined, SendOutlined } from '@ant-design/icons'
 import { Button, Empty, Input, Select, Space, Tag, Typography, message as antdMessage } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { workspaceApi } from '../utils/workspaceApi'
@@ -95,6 +95,7 @@ export default function WorkspaceRunView({ workspace }) {
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [sessionMeta, setSessionMeta] = useState({ summary: '', memory_items: [] })
+  const [workersCollapsed, setWorkersCollapsed] = useState(false)
   const bottomRef = useRef(null)
   const activeSessionIdRef = useRef('')
   const participants = orchestration?.workers ?? []
@@ -432,8 +433,38 @@ export default function WorkspaceRunView({ workspace }) {
                 </Space>
               </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, padding: '20px 16px', background: '#f7f8fa', borderBottom: '1px solid #f0f0f0', minHeight: 190 }}>
-              {orderedParticipants.map((agent) => <AgentCard key={agent.id} agent={agent} state={states[agent.id] || 'idle'} workspace={workspace} />)}
+            <div style={{ background: '#f7f8fa', borderBottom: '1px solid #f0f0f0' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                onClick={() => setWorkersCollapsed(!workersCollapsed)}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Worker 状态 ({orderedParticipants.length})
+                </Text>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={workersCollapsed ? <RightOutlined /> : <DownOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setWorkersCollapsed(!workersCollapsed)
+                  }}
+                >
+                  {workersCollapsed ? '展开' : '折叠'}
+                </Button>
+              </div>
+              {!workersCollapsed && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, padding: '12px 16px 20px', minHeight: 156 }}>
+                  {orderedParticipants.map((agent) => <AgentCard key={agent.id} agent={agent} state={states[agent.id] || 'idle'} workspace={workspace} />)}
+                </div>
+              )}
             </div>
           </>
         )}
