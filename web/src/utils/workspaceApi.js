@@ -32,4 +32,7 @@ export const workspaceApi = {
   // 文件管理
   listFiles: (id, path = '.') => api.get(`/api/workspaces/${id}/files?path=${encodeURIComponent(path)}`),
   deleteFile: (id, path, recursive = false) => api.delete(`/api/workspaces/${id}/files`, { path, recursive }),
+
+  // Git 仓库验证
+  verifyGitRepo: (id, repoUrl) => api.post(`/api/workspaces/${id}/verify-git-repo`, { repo_url: repoUrl }),
 }

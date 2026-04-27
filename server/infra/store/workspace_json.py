@@ -16,6 +16,7 @@ from server.domain.agent.agent_entity import (
     ChatSessionEntity,
     CodexConnectionEntity,
     EdgeCondition,
+    GitWorkflowConfig,
     GlobalSettingsEntity,
     GraphEdge,
     GraphEntity,
@@ -225,6 +226,22 @@ def _graph_from_dict(d: dict) -> GraphEntity:
 
 
 def _agent_from_dict(d: dict) -> AgentEntity:
+    git_workflow = None
+    if d.get("git_workflow"):
+        gw = d["git_workflow"]
+        git_workflow = GitWorkflowConfig(
+            enabled=gw.get("enabled", False),
+            repoUrl=gw.get("repoUrl", ""),
+            baseBranch=gw.get("baseBranch", "main"),
+            featureBranchPrefix=gw.get("featureBranchPrefix", "feature/"),
+            autoCreateBranch=gw.get("autoCreateBranch", True),
+            autoCommit=gw.get("autoCommit", True),
+            commitMessageTemplate=gw.get("commitMessageTemplate", "[Agent] {{task_name}}"),
+            prTitleTemplate=gw.get("prTitleTemplate", "[Agent] {{task_name}}"),
+            prBodyTemplate=gw.get("prBodyTemplate", "## 任务描述\n{{task_description}}\n\n## 变更内容\n- 由 Agent 自动生成\n"),
+            autoCreatePR=gw.get("autoCreatePR", False),
+            requireReview=gw.get("requireReview", True),
+        )
     return AgentEntity(
         id=d["id"],
         name=d["name"],
@@ -240,6 +257,7 @@ def _agent_from_dict(d: dict) -> AgentEntity:
         api_key=d.get("api_key", ""),
         work_subdir=d.get("work_subdir", ""),
         order=d.get("order", 0),
+        git_workflow=git_workflow,
     )
 
 

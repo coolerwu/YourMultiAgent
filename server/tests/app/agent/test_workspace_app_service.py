@@ -5,6 +5,7 @@ WorkspaceAppService 单元测试：覆盖 CRUD 正常路径 + 边界 case。
 """
 
 import pytest
+import subprocess
 from unittest.mock import AsyncMock, MagicMock
 
 from server.app.agent.workspace_app_service import (
@@ -15,7 +16,7 @@ from server.app.agent.workspace_app_service import (
     WorkspaceAppService,
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
-from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
+from server.domain.agent.agent_entity import CodexConnectionEntity, GitWorkflowConfig, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
 from server.domain.agent.agent_entity import WorkspaceKind
 
 
@@ -237,6 +238,95 @@ async def test_update_orchestration_updates_coordinator_and_workers():
     assert updated.workers[0].llm_profile_id == "profile-2"
     assert updated.workers[1].name == "研发"
     assert updated.workers[1].order == 2
+
+
+@pytest.mark.asyncio
+async def test_update_orchestration_preserves_git_workflow_config():
+    existing = WorkspaceEntity(id="ws-git", name="Git", work_dir="~/git")
+    gw = _make_gateway(existing)
+    svc = WorkspaceAppService(gw)
+
+    updated = await svc.update_orchestration(
+        UpdateWorkspaceOrchestrationCmd(
+            workspace_id="ws-git",
+            coordinator=AgentNodeCmd(
+                id="coordinator",
+                name="主控",
+                provider=LLMProvider.ANTHROPIC,
+                model="claude-sonnet-4-6",
+                system_prompt="你是主控",
+                git_workflow=GitWorkflowConfig(
+                    enabled=True,
+                    repoUrl="https://github.com/test/repo.git",
+                    baseBranch="develop",
+                ),
+            ),
+            workers=[],
+        )
+    )
+
+    assert updated.coordinator.git_workflow is not None
+    assert updated.coordinator.git_workflow.enabled is True
+    assert updated.coordinator.git_workflow.repoUrl == "https://github.com/test/repo.git"
+    assert updated.coordinator.git_workflow.baseBranch == "develop"
+
+
+@pytest.mark.asyncio
+async def test_verify_git_repository_local_valid():
+    gw = _make_gateway(WorkspaceEntity(id="ws-git", name="Git", work_dir="~/git"))
+    svc = WorkspaceAppService(gw)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("os.path.isdir", lambda _path: True)
+        result = await svc.verify_git_repository("ws-git", "/path/to/repo")
+
+    assert result["valid"] is True
+    assert result["type"] == "local"
+
+
+@pytest.mark.asyncio
+async def test_verify_git_repository_remote_success(monkeypatch):
+    gw = _make_gateway(WorkspaceEntity(id="ws-git", name="Git", work_dir="~/git"))
+    svc = WorkspaceAppService(gw)
+
+    completed = subprocess.CompletedProcess(
+        ["git"],
+        0,
+        stdout="abc123\trefs/heads/main\ndef456\trefs/heads/feature/test\n",
+        stderr="",
+    )
+    monkeypatch.setattr("subprocess.run", lambda *_args, **_kwargs: completed)
+
+    result = await svc.verify_git_repository("ws-git", "https://github.com/test/repo.git")
+
+    assert result["valid"] is True
+    assert result["type"] == "remote"
+    assert result["branches"] == ["main", "feature/test"]
+
+
+@pytest.mark.asyncio
+async def test_verify_git_repository_remote_timeout(monkeypatch):
+    gw = _make_gateway(WorkspaceEntity(id="ws-git", name="Git", work_dir="~/git"))
+    svc = WorkspaceAppService(gw)
+
+    def raise_timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd=["git"], timeout=30)
+
+    monkeypatch.setattr("subprocess.run", raise_timeout)
+
+    result = await svc.verify_git_repository("ws-git", "https://slow.example/repo.git")
+
+    assert result["valid"] is False
+    assert "超时" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_verify_git_repository_missing_workspace():
+    gw = _make_gateway(None)
+    svc = WorkspaceAppService(gw)
+
+    with pytest.raises(ValueError, match="Workspace 不存在"):
+        await svc.verify_git_repository("ghost", "https://github.com/test/repo.git")
 
 
 @pytest.mark.asyncio

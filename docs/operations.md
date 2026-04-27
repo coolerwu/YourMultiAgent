@@ -15,6 +15,10 @@
   - 对当前应用执行增量更新
   - 流程为：`git fetch/pull` -> 同步 Python 依赖 -> 重启服务
   - 会造成一次短暂服务重启，不是热更新
+- 生产部署脚本 `run.sh prod [PORT]`
+  - 会注册或更新 `yourmultiagent.service`
+  - 对已有服务执行更新或重启时，也会确保 `systemctl enable yourmultiagent` 已生效
+  - systemd 内部实际调用 `run.sh serve-prod [PORT]` 启动服务，生产数据目录固定为 `~/.yourmultiagent`
 - `Codex 运行时`
   - 检测当前宿主机的 Codex CLI 安装、版本、路径和登录状态
   - 支持 `检测环境`、`安装/更新 Codex`、`登录 Codex`

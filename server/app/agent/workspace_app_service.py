@@ -5,6 +5,8 @@ Workspace 应用服务：CRUD 编排。
 """
 
 import uuid
+import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -179,6 +181,47 @@ class WorkspaceAppService:
 
     async def get_workspace(self, ws_id: str) -> WorkspaceEntity | None:
         return await self._gateway.find_by_id(ws_id)
+
+    async def verify_git_repository(self, ws_id: str, repo_url: str) -> dict:
+        workspace = await self._gateway.find_by_id(ws_id)
+        if workspace is None:
+            raise ValueError("Workspace 不存在")
+
+        normalized_url = repo_url.strip()
+        if not normalized_url:
+            raise ValueError("仓库地址不能为空")
+
+        if _is_local_git_path(normalized_url):
+            path = os.path.abspath(os.path.expanduser(normalized_url))
+            if os.path.isdir(os.path.join(path, ".git")):
+                return {"valid": True, "message": "本地 Git 仓库有效", "type": "local"}
+            return {"valid": False, "error": "本地路径不是有效的 Git 仓库（缺少 .git 目录）", "type": "local"}
+
+        try:
+            result = subprocess.run(  # noqa: S603
+                ["git", "ls-remote", "--heads", normalized_url],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return {"valid": False, "error": "验证超时（30秒），请检查网络连接", "type": "remote"}
+        except FileNotFoundError:
+            raise RuntimeError("Git 命令未安装") from None
+        except Exception as exc:  # noqa: BLE001
+            return {"valid": False, "error": f"验证失败: {exc}", "type": "remote"}
+
+        if result.returncode == 0:
+            branches = _parse_git_heads(result.stdout)
+            return {
+                "valid": True,
+                "message": "仓库地址可访问",
+                "type": "remote",
+                "branches": branches[:10],
+            }
+
+        return {"valid": False, "error": _friendly_git_error(result.stderr.strip()), "type": "remote"}
 
     async def delete_workspace(self, ws_id: str) -> bool:
         deleted = await self._gateway.delete(ws_id)
@@ -480,7 +523,33 @@ def _to_agent_entity(cmd: AgentNodeCmd, workspace: WorkspaceEntity) -> AgentEnti
         api_key=api_key,
         work_subdir=cmd.work_subdir,
         order=cmd.order,
+        git_workflow=cmd.git_workflow,
     )
+
+
+def _is_local_git_path(repo_url: str) -> bool:
+    return repo_url.startswith(("./", "../", "/", "~")) or (
+        len(repo_url) > 2 and repo_url[1] == ":" and repo_url[2] == "/" and repo_url[0].isalpha()
+    )
+
+
+def _parse_git_heads(output: str) -> list[str]:
+    branches = []
+    for line in output.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) == 2 and parts[1].startswith("refs/heads/"):
+            branches.append(parts[1].replace("refs/heads/", "", 1))
+    return branches
+
+
+def _friendly_git_error(error_msg: str) -> str:
+    if "Authentication failed" in error_msg or "could not read Username" in error_msg:
+        return "认证失败：需要用户名/密码或 SSH 密钥"
+    if "Could not resolve host" in error_msg:
+        return "无法解析主机名，请检查网络或 URL"
+    if "not found" in error_msg.lower():
+        return "仓库不存在，请检查 URL"
+    return error_msg
 
 
 def _fallback_model_for_provider(provider: LLMProvider, workspace: WorkspaceEntity) -> str:

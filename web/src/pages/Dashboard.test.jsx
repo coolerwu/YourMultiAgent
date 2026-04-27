@@ -189,11 +189,12 @@ describe('Dashboard', () => {
       expect(workspaceApiMock.list).toHaveBeenCalled()
     })
 
-    expect(screen.getByText('单聊')).toBeInTheDocument()
+    const chatSectionMatcher = (_, element) => element?.textContent === '单聊目录 (1)'
+    expect(screen.getAllByText(chatSectionMatcher).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '折叠导航' }))
 
     await waitFor(() => {
-      expect(screen.queryByText('单聊')).not.toBeInTheDocument()
+      expect(screen.queryAllByText(chatSectionMatcher)).toHaveLength(0)
     })
 
     expect(window.localStorage.getItem('dashboard-sidebar-collapsed')).toBe('1')

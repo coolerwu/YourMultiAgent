@@ -49,6 +49,7 @@ flowchart LR
 
 - 当前大脑位于 `Central Server`
 - 主控先生成拆解计划，再按顺序执行 Worker
+- Workspace 模式下，主控可配置 `git_workflow`。该配置会随 `workspace.json` 持久化，当前用于记录仓库地址、基础分支、分支/提交/PR 模板和人工 Review 要求；仓库地址可通过后端 Git 验证端点检查本地路径或远程分支可访问性
 - Agent 实际上下文由以下内容拼接
   1. `system_prompt`
   2. 自动注入的工具使用约束

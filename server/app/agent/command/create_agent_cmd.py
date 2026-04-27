@@ -8,7 +8,7 @@ app/agent/command/create_agent_cmd.py
 from dataclasses import dataclass, field
 from typing import Optional
 
-from server.domain.agent.agent_entity import EdgeCondition, LLMProvider
+from server.domain.agent.agent_entity import EdgeCondition, GitWorkflowConfig, LLMProvider
 
 
 @dataclass
@@ -27,6 +27,7 @@ class AgentNodeCmd:
     api_key: str = ""        # 节点级覆盖；留空则用环境变量
     work_subdir: str = ""    # 相对于 workspace.work_dir 的子目录名，默认 = agent.name
     order: int = 0           # Worker 执行顺序；数字越小越先执行
+    git_workflow: GitWorkflowConfig | None = None
 
 
 @dataclass

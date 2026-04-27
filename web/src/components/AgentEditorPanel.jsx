@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message, Collapse } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { graphApi } from '../utils/graphApi'
+import { workspaceApi } from '../utils/workspaceApi'
 import {
   applyRuntimeSelection,
   DEFAULT_CODEX_MODEL,
@@ -65,6 +66,7 @@ export default function AgentEditorPanel({
 }) {
   const [form] = Form.useForm()
   const [optimizingPrompt, setOptimizingPrompt] = useState(false)
+  const [verifyingRepo, setVerifyingRepo] = useState(false)
   const [promptOptimizer, setPromptOptimizer] = useState({
     open: false,
     goal: '润色当前 Prompt，让表达更清晰、更稳定',
@@ -381,18 +383,28 @@ export default function AgentEditorPanel({
                       />
                       <Button
                         size="small"
+                        loading={verifyingRepo}
                         onClick={async () => {
                           if (!gitWorkflow.repoUrl) {
                             message.warning('请先输入仓库地址')
                             return
                           }
-                          // 简单验证：检查是否是有效的 git 仓库地址格式
-                          const isValid = gitWorkflow.repoUrl.match(/^(https?:\/\/|git@|\.\/|\.\.|\/|[a-zA-Z]:)/)
-                          if (!isValid) {
-                            message.error('仓库地址格式不正确')
-                            return
+                          setVerifyingRepo(true)
+                          try {
+                            const result = await workspaceApi.verifyGitRepo(workspace?.id, gitWorkflow.repoUrl)
+                            if (result.valid) {
+                              message.success(result.message)
+                              if (result.branches && result.branches.length > 0) {
+                                message.info(`可用分支: ${result.branches.slice(0, 5).join(', ')}${result.branches.length > 5 ? '...' : ''}`)
+                              }
+                            } else {
+                              message.error(result.error || '仓库验证失败')
+                            }
+                          } catch (e) {
+                            message.error(e.message || '验证请求失败')
+                          } finally {
+                            setVerifyingRepo(false)
                           }
-                          message.success('仓库地址格式有效')
                         }}
                       >
                         验证

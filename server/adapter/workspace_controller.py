@@ -23,7 +23,7 @@ from server.app.agent.workspace_app_service import (
     WorkspaceAppService,
 )
 from server.app.agent.command.create_agent_cmd import AgentNodeCmd
-from server.domain.agent.agent_entity import LLMProvider, WorkspaceKind
+from server.domain.agent.agent_entity import GitWorkflowConfig, LLMProvider, WorkspaceKind
 from server.container import get_workspace_service, get_worker_router
 from server.infra.worker.worker_router import WorkerRouter
 
@@ -68,6 +68,7 @@ class AgentNodeReq(BaseModel):
     api_key: str = ""
     work_subdir: str = ""
     order: int = 0
+    git_workflow: dict | None = None
 
 
 class OrchestrationReq(BaseModel):
@@ -77,6 +78,15 @@ class OrchestrationReq(BaseModel):
 
 class CreateSessionReq(BaseModel):
     title_hint: str = ""
+
+
+def _agent_node_cmd(req: AgentNodeReq) -> AgentNodeCmd:
+    payload = req.model_dump()
+    git_workflow = payload.pop("git_workflow", None)
+    return AgentNodeCmd(
+        **payload,
+        git_workflow=GitWorkflowConfig(**git_workflow) if isinstance(git_workflow, dict) else None,
+    )
 
 
 # ── 路由 ─────────────────────────────────────────────────────
@@ -183,8 +193,8 @@ async def update_orchestration(
         ws = await svc.update_orchestration(
             UpdateWorkspaceOrchestrationCmd(
                 workspace_id=workspace_id,
-                coordinator=AgentNodeCmd(**req.coordinator.model_dump()),
-                workers=[AgentNodeCmd(**worker.model_dump()) for worker in req.workers],
+                coordinator=_agent_node_cmd(req.coordinator),
+                workers=[_agent_node_cmd(worker) for worker in req.workers],
             )
         )
     except ValueError as exc:
@@ -282,3 +292,25 @@ async def delete_workspace_file(
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "删除失败"))
     return result
+
+
+# ── Git 仓库验证端点 ─────────────────────────────────────────────
+
+class GitRepoVerifyReq(BaseModel):
+    repo_url: str
+
+
+@router.post("/{workspace_id}/verify-git-repo")
+async def verify_git_repository(
+    workspace_id: str,
+    req: GitRepoVerifyReq,
+    svc: WorkspaceAppService = Depends(get_workspace_service),
+):
+    """验证 Git 仓库地址是否可访问"""
+    try:
+        return await svc.verify_git_repository(workspace_id, req.repo_url)
+    except ValueError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "Workspace 不存在" else 400, detail=detail) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

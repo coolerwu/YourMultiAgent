@@ -40,6 +40,22 @@ class EdgeCondition(str, Enum):
 
 
 @dataclass
+class GitWorkflowConfig:
+    """Git 工作流配置"""
+    enabled: bool = False
+    repoUrl: str = ""
+    baseBranch: str = "main"
+    featureBranchPrefix: str = "feature/"
+    autoCreateBranch: bool = True
+    autoCommit: bool = True
+    commitMessageTemplate: str = "[Agent] {{task_name}}"
+    prTitleTemplate: str = "[Agent] {{task_name}}"
+    prBodyTemplate: str = "## 任务描述\n{{task_description}}\n\n## 变更内容\n- 由 Agent 自动生成\n"
+    autoCreatePR: bool = False
+    requireReview: bool = True
+
+
+@dataclass
 class AgentEntity:
     """单个 Agent 节点配置"""
     id: str
@@ -59,6 +75,8 @@ class AgentEntity:
     work_subdir: str = ""
     # Worker 执行顺序；coordinator 固定为 0
     order: int = 0
+    # Git 工作流配置（仅 Coordinator 有效）
+    git_workflow: GitWorkflowConfig | None = None
 
     def resolved_work_subdir(self) -> str:
         """返回实际子目录名，未配置时退化为 agent name"""

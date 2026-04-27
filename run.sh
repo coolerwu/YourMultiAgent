@@ -215,9 +215,11 @@ ensure_systemd_service() {
     echo "▶  更新 systemd 服务：$SERVICE_NAME"
     write_service_file
     sudo systemctl daemon-reload
+    sudo systemctl enable "$SERVICE_NAME"
     sudo systemctl restart "$SERVICE_NAME"
   else
     echo "▶  重启 systemd 服务：$SERVICE_NAME"
+    sudo systemctl enable "$SERVICE_NAME"
     sudo systemctl restart "$SERVICE_NAME"
   fi
 }

@@ -64,7 +64,7 @@ chmod +x run.sh
 - 如果服务器没有 `git`，自动回退到下载 GitHub 源码包并解压
 - 创建或复用 `~/.yourmultiagent` 作为生产数据目录
 - 创建 `.venv` 并安装运行时依赖
-- 注册或更新 `systemd` 服务 `yourmultiagent`
+- 注册或更新 `systemd` 服务 `yourmultiagent`，并确保服务已启用开机自启
 - 启动或重启服务，并验证 `/api/health`
 
 前提：
@@ -90,7 +90,7 @@ What this command does:
 - Falls back to downloading and extracting the GitHub source archive when `git` is unavailable
 - Creates or reuses `~/.yourmultiagent` as the production data directory
 - Creates `.venv` and installs runtime dependencies
-- Registers or updates the `yourmultiagent` `systemd` service
+- Registers or updates the `yourmultiagent` `systemd` service and ensures it is enabled on boot
 - Starts/restarts the service and verifies `/api/health`
 
 Prerequisites:

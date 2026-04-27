@@ -400,50 +400,67 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
             os.close(slave_fd)
             slave_fd = None
 
-            # 将 PTY master 转为非阻塞模式
-            os.set_blocking(master_fd, False)
+            stdout_stream = getattr(process, "stdout", None)
+            if stdout_stream is not None and hasattr(stdout_stream, "readline"):
+                os.close(master_fd)
+                master_fd = None
+                while True:
+                    line = await asyncio.wait_for(stdout_stream.readline(), timeout=_CODEX_EXEC_TIMEOUT_SECONDS)
+                    if not line:
+                        break
+                    stdout_chunks.append(line)
+                    event = _parse_json_event_line(line.decode("utf-8", errors="ignore"))
+                    if event:
+                        delta = _extract_stream_text_delta(event)
+                        if delta:
+                            emitted_any = True
+                            yield delta
+                await asyncio.wait_for(process.wait(), timeout=5)
+            else:
+                # 将 PTY master 转为非阻塞模式
+                os.set_blocking(master_fd, False)
 
-            loop = asyncio.get_event_loop()
-            buffer = b""
+                loop = asyncio.get_event_loop()
+                buffer = b""
 
-            while True:
-                try:
-                    # 使用 select 等待数据可读
-                    readable, _, _ = await loop.run_in_executor(
-                        None,
-                        lambda: select.select([master_fd], [], [], 0.1)
-                    )
+                while True:
+                    try:
+                        # 使用 select 等待数据可读
+                        readable, _, _ = await loop.run_in_executor(
+                            None,
+                            lambda: select.select([master_fd], [], [], 0.1)
+                        )
 
-                    if readable:
-                        chunk = os.read(master_fd, 4096)
-                        if not chunk:
+                        if readable:
+                            chunk = os.read(master_fd, 4096)
+                            if not chunk:
+                                break
+                            buffer += chunk
+
+                            # 处理缓冲区中的完整行
+                            while b"\n" in buffer:
+                                line, buffer = buffer.split(b"\n", 1)
+                                line += b"\n"
+                                stdout_chunks.append(line)
+                                event = _parse_json_event_line(line.decode("utf-8", errors="ignore"))
+                                if event:
+                                    delta = _extract_stream_text_delta(event)
+                                    if delta:
+                                        emitted_any = True
+                                        yield delta
+
+                        # 检查进程是否结束
+                        if process.returncode is not None:
                             break
-                        buffer += chunk
 
-                        # 处理缓冲区中的完整行
-                        while b"\n" in buffer:
-                            line, buffer = buffer.split(b"\n", 1)
-                            line += b"\n"
-                            stdout_chunks.append(line)
-                            event = _parse_json_event_line(line.decode("utf-8", errors="ignore"))
-                            if event:
-                                delta = _extract_stream_text_delta(event)
-                                if delta:
-                                    emitted_any = True
-                                    yield delta
-
-                    # 检查进程是否结束
-                    if process.returncode is not None:
+                    except OSError:
                         break
 
-                except OSError:
-                    break
+                # 读取剩余数据
+                if buffer:
+                    stdout_chunks.append(buffer)
 
-            # 读取剩余数据
-            if buffer:
-                stdout_chunks.append(buffer)
-
-            await asyncio.wait_for(process.wait(), timeout=5)
+                await asyncio.wait_for(process.wait(), timeout=5)
 
         except asyncio.TimeoutError:
             logger.warning(
@@ -523,6 +540,7 @@ async def _stream_codex_text_with_retry(args: list[str], work_dir: str):
             assistant_text = _extract_assistant_text(stdout_text)
             if assistant_text:
                 yield assistant_text
+                return
 
         if emitted_any:
             return

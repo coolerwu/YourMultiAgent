@@ -425,8 +425,8 @@ async def test_stream_codex_text_with_retry_yields_message_deltas(monkeypatch):
 
     assert deltas == ["你", "好"]
     assert process.wait_called is True
-    # 流式模式下 stderr 也应该被重定向到 DEVNULL 避免管道死锁
-    assert captured["kwargs"]["stderr"] == codex_cli_adapter.asyncio.subprocess.DEVNULL
+    # 流式模式下 stdout/stderr 共用 PTY，避免非 TTY 环境下输出缓冲。
+    assert captured["kwargs"]["stderr"] == captured["kwargs"]["stdout"]
 
 
 @pytest.mark.asyncio
