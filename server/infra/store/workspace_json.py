@@ -23,6 +23,7 @@ from server.domain.agent.agent_entity import (
     LLMProfileEntity,
     LLMProvider,
     MemoryItemEntity,
+    PageAuthConfigEntity,
     WorkspaceKind,
     WorkspaceEntity,
 )
@@ -114,6 +115,7 @@ def load_global_settings(data_dir: Path) -> GlobalSettingsEntity:
             for item in settings.get("codex_connections", [])
             if isinstance(item, dict) and "id" in item and "name" in item
         ],
+        page_auth=_page_auth_from_dict(settings.get("page_auth", {})),
     )
 
 
@@ -125,6 +127,7 @@ def save_global_settings(data_dir: Path, settings: GlobalSettingsEntity) -> None
     raw["global_settings"] = {
         "llm_profiles": [dataclasses.asdict(profile) for profile in settings.llm_profiles],
         "codex_connections": [dataclasses.asdict(item) for item in settings.codex_connections],
+        "page_auth": dataclasses.asdict(settings.page_auth),
     }
     write_json(setting_path(data_dir), raw)
 
@@ -135,6 +138,25 @@ def load_workspace_payload(path: Path) -> dict:
 
 def save_workspace_payload(path: Path, payload: dict) -> None:
     write_json(path, payload)
+
+
+def _page_auth_from_dict(value: object) -> PageAuthConfigEntity:
+    if not isinstance(value, dict):
+        return PageAuthConfigEntity()
+    return PageAuthConfigEntity(
+        enabled=bool(value.get("enabled", False)),
+        access_key=str(value.get("access_key", "") or ""),
+        secret_key=str(value.get("secret_key", "") or ""),
+        token_ttl_seconds=_positive_int(value.get("token_ttl_seconds"), 24 * 60 * 60),
+    )
+
+
+def _positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def workspace_to_payload(ws: WorkspaceEntity, graphs: list[GraphEntity]) -> dict:

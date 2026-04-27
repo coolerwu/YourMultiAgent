@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from server.domain.agent.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, PageAuthConfigEntity, WorkspaceEntity, WorkspaceKind
 from server.infra.store.json_workspace_store import JsonWorkspaceStore
 from server.infra.store.workspace_json import setting_path, workspace_file_path
 
@@ -130,6 +130,12 @@ async def test_save_and_find_by_id(tmp_path):
                     status="connected",
                 )
             ],
+            page_auth=PageAuthConfigEntity(
+                enabled=True,
+                access_key="ak-demo",
+                secret_key="sk-demo",
+                token_ttl_seconds=60,
+            ),
         )
     )
     await store.save(_make_ws())
@@ -164,6 +170,12 @@ async def test_enum_roundtrip(tmp_path):
                     status="connected",
                 )
             ],
+            page_auth=PageAuthConfigEntity(
+                enabled=True,
+                access_key="ak-demo",
+                secret_key="sk-demo",
+                token_ttl_seconds=60,
+            ),
         )
     )
     await store.save(_make_ws())
@@ -273,6 +285,12 @@ async def test_migrates_legacy_global_json_files(tmp_path):
 @pytest.mark.asyncio
 async def test_setting_json_persists_global_provider_settings(tmp_path):
     store = JsonWorkspaceStore(tmp_path)
+    page_auth = PageAuthConfigEntity(
+        enabled=True,
+        access_key="ak-demo",
+        secret_key="sk-demo",
+        token_ttl_seconds=60,
+    )
     saved = await store.save_global_settings(
         GlobalSettingsEntity(
             llm_profiles=[
@@ -290,6 +308,7 @@ async def test_setting_json_persists_global_provider_settings(tmp_path):
                     status="connected",
                 )
             ],
+            page_auth=page_auth,
         )
     )
 
@@ -297,6 +316,9 @@ async def test_setting_json_persists_global_provider_settings(tmp_path):
 
     assert loaded.llm_profiles[0].name == "共享 GPT"
     assert loaded.codex_connections[0].name == "个人 Codex"
+    assert loaded.page_auth.enabled is True
+    assert loaded.page_auth.token_ttl_seconds == 60
     payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
     assert payload["global_settings"]["llm_profiles"][0]["model"] == "gpt-4o-mini"
     assert payload["global_settings"]["codex_connections"][0]["name"] == "个人 Codex"
+    assert payload["global_settings"]["page_auth"]["access_key"] == "ak-demo"

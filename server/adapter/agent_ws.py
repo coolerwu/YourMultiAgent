@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from server.app.agent.agent_app_service import AgentAppService
 from server.container import get_agent_service
+from server.support.page_auth import extract_bearer_token, load_auth_settings, verify_token
 from server.support.app_logging import get_logger, log_context, log_event
 
 router = APIRouter(tags=["AgentWS"])
@@ -38,6 +39,11 @@ async def run_workspace_ws(
     svc: AgentAppService = Depends(get_agent_service),
 ) -> None:
     request_id = ws.headers.get("x-request-id", "").strip() or str(uuid.uuid4())
+    if load_auth_settings().enabled:
+        token = ws.query_params.get("token", "") or extract_bearer_token(ws.headers.get("authorization", ""))
+        if not verify_token(token):
+            await ws.close(code=1008)
+            return
     await ws.accept()
     with log_context(request_id=request_id, workspace_id=workspace_id):
         log_event(logger, event="ws_connected", layer="ws", action="workspace_run", status="started")

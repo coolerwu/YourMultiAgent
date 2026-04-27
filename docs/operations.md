@@ -27,6 +27,36 @@
   - 统一记录 HTTP、WebSocket、Worker、Store、AI、系统设置与 `uvicorn` 访问事件
   - 页面默认展示最近 300 行
 
+## 页面登录 AK/SK
+
+默认不启用页面登录，适合本机开发。生产或局域网访问时，可通过 `DATA_DIR/setting.json` 中的
+`global_settings.page_auth` 启用页面级 AK/SK 校验：
+
+```json
+{
+  "version": 2,
+  "workspaces": [],
+  "global_settings": {
+    "page_auth": {
+      "enabled": true,
+      "access_key": "your-access-key",
+      "secret_key": "your-secret-key",
+      "token_ttl_seconds": 86400
+    }
+  }
+}
+```
+
+启用条件是 `enabled=true` 且 `access_key` / `secret_key` 都非空。启用后：
+
+- 前端进入应用前会显示登录页
+- `/api/auth/status` 和 `/api/auth/login` 不需要 token
+- 其他 `/api/*` 请求需要 `Authorization: Bearer <token>`
+- Workspace 运行和 Remote Worker WebSocket 通过 `token` 查询参数校验
+- token 默认有效期为 24 小时，可用 `token_ttl_seconds` 调整
+
+该登录只保护当前 YourMultiAgent 页面和接口，不影响 Codex CLI 登录态，也不替代各 LLM Provider 的 API Key。
+
 ## Codex 运行时模型
 
 当前实现里，Codex CLI 是“宿主机全局运行时”，不是“每个连接独立一套运行时”。

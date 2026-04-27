@@ -83,6 +83,7 @@ async def update_provider_settings(
             _merge_codex_connection(item, existing_codex_by_id.get(item.id))
             for item in req.codex_connections
         ],
+        page_auth=existing_settings.page_auth,
     )
     saved = await svc.update_global_settings(settings)
     saved.codex_connections = await codex_runtime.enrich_connections(saved.codex_connections)

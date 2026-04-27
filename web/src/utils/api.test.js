@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { resolveWebSocketUrl, wsRun } from './api'
+import { appendQuery, resolveWebSocketUrl, setAuthToken, wsRun } from './api'
 
 class MockWebSocket {
   static instances = []
@@ -35,6 +35,7 @@ describe('wsRun', () => {
   afterEach(() => {
     MockWebSocket.instances = []
     vi.unstubAllGlobals()
+    window.localStorage.clear()
   })
 
   it('sends payload when socket opens', () => {
@@ -46,6 +47,15 @@ describe('wsRun', () => {
     expect(ws.sent).toEqual([JSON.stringify({ user_message: 'hello' })])
   })
 
+  it('adds auth token to websocket url when present', () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    setAuthToken('token demo')
+
+    wsRun('/ws/workspaces/demo/run', { user_message: 'hello' })
+
+    expect(MockWebSocket.instances[0].url).toBe('ws://localhost:3000/ws/workspaces/demo/run?token=token%20demo')
+  })
+
   it('calls onDone when socket closes before done event', () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
     const onDone = vi.fn()
@@ -54,5 +64,11 @@ describe('wsRun', () => {
     ws.onclose?.({ code: 1000 })
 
     expect(onDone).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('appendQuery', () => {
+  it('preserves existing query params', () => {
+    expect(appendQuery('/ws/worker?kind=remote', 'token', 'abc')).toBe('/ws/worker?kind=remote&token=abc')
   })
 })

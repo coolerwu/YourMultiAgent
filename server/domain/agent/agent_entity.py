@@ -148,10 +148,20 @@ class CodexConnectionEntity:
 
 
 @dataclass
+class PageAuthConfigEntity:
+    """页面访问 AK/SK 登录配置。"""
+    enabled: bool = False
+    access_key: str = ""
+    secret_key: str = ""
+    token_ttl_seconds: int = 24 * 60 * 60
+
+
+@dataclass
 class GlobalSettingsEntity:
     """全局共享设置：当前主要承载 Provider / LLM 配置。"""
     llm_profiles: list[LLMProfileEntity] = field(default_factory=list)
     codex_connections: list[CodexConnectionEntity] = field(default_factory=list)
+    page_auth: PageAuthConfigEntity = field(default_factory=PageAuthConfigEntity)
 
 
 @dataclass

@@ -22,6 +22,7 @@ from server.domain.worker.capability_entity import CapabilityEntity, ParameterSc
 from server.domain.worker.worker_entity import WorkerMetaEntity
 from server.infra.worker.remote_worker_proxy import RemoteWorkerProxy
 from server.infra.worker.worker_router import WorkerRouter
+from server.support.page_auth import extract_bearer_token, load_auth_settings, verify_token
 from server.support.app_logging import get_logger, log_context, log_event
 
 router = APIRouter(tags=["WorkerWS"])
@@ -34,6 +35,11 @@ async def worker_ws(
     worker_router: WorkerRouter = Depends(get_worker_router),
 ) -> None:
     request_id = ws.headers.get("x-request-id", "").strip() or str(uuid.uuid4())
+    if load_auth_settings().enabled:
+        token = ws.query_params.get("token", "") or extract_bearer_token(ws.headers.get("authorization", ""))
+        if not verify_token(token):
+            await ws.close(code=1008)
+            return
     await ws.accept()
     proxy: RemoteWorkerProxy | None = None
 

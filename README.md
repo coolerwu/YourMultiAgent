@@ -278,3 +278,27 @@ codex login --device-auth
 ```
 
 如果当前终端里还找不到新安装的命令，请先退出终端并重新进入。
+
+## 页面登录 AK/SK
+
+默认不启用页面登录。需要保护 Web 页面和后端接口时，在 `DATA_DIR/setting.json` 的
+`global_settings.page_auth` 中配置：
+
+```json
+{
+  "version": 2,
+  "workspaces": [],
+  "global_settings": {
+    "page_auth": {
+      "enabled": true,
+      "access_key": "your-access-key",
+      "secret_key": "your-secret-key",
+      "token_ttl_seconds": 86400
+    }
+  }
+}
+```
+
+`page_auth.enabled=true` 且 AK/SK 都非空时，前端会先显示登录页；登录成功后调用普通 HTTP API
+会自动携带 `Bearer token`，Workspace 运行的 WebSocket 也会携带同一个 token。`token_ttl_seconds`
+默认 24 小时。

@@ -3,12 +3,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from server.adapter.settings_controller import CodexConnectionReq, GlobalSettingsReq, LLMProfileReq, update_provider_settings
-from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProvider
+from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProvider, PageAuthConfigEntity
 
 
 @pytest.mark.asyncio
 async def test_update_provider_settings_preserves_existing_codex_runtime_fields():
     existing_settings = GlobalSettingsEntity(
+        page_auth=PageAuthConfigEntity(enabled=True, access_key="ak-demo", secret_key="sk-demo"),
         codex_connections=[
             CodexConnectionEntity(
                 id="codex-1",
@@ -57,6 +58,8 @@ async def test_update_provider_settings_preserves_existing_codex_runtime_fields(
     assert saved.codex_connections[0].status == "connected"
     assert saved.codex_connections[0].login_status == "connected"
     assert saved.codex_connections[0].install_status == "installed"
+    assert saved.page_auth.enabled is True
+    assert saved.page_auth.access_key == "ak-demo"
     assert result.codex_connections[0].login_status == "connected"
 
 

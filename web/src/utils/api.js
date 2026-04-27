@@ -4,14 +4,35 @@
  */
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+const AUTH_TOKEN_KEY = 'yourmultiagent-auth-token'
+
+export function getAuthToken() {
+  return window.localStorage.getItem(AUTH_TOKEN_KEY) || ''
+}
+
+export function setAuthToken(token) {
+  if (token) {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token)
+  } else {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY)
+  }
+}
 
 async function request(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' }
+  const token = getAuthToken()
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: body != null ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
+    if (res.status === 401) {
+      setAuthToken('')
+    }
     const text = await res.text()
     throw new Error(`[${res.status}] ${text}`)
   }
@@ -23,6 +44,12 @@ export const api = {
   post: (path, body) => request('POST', path, body),
   put: (path, body) => request('PUT', path, body),
   delete: (path) => request('DELETE', path),
+}
+
+export const authApi = {
+  status: () => api.get('/api/auth/status'),
+  login: (data) => api.post('/api/auth/login', data),
+  logout: () => setAuthToken(''),
 }
 
 function resolveWebSocketUrl(path) {
@@ -56,7 +83,9 @@ function resolveWebSocketUrl(path) {
  * @returns {WebSocket}       - 返回 ws 实例，外部可调用 ws.close() 中止
  */
 export function wsRun(path, payload, onChunk, onDone, onError) {
-  const ws = new WebSocket(resolveWebSocketUrl(path))
+  const token = getAuthToken()
+  const wsPath = token ? appendQuery(path, 'token', token) : path
+  const ws = new WebSocket(resolveWebSocketUrl(wsPath))
   let completed = false
 
   ws.onopen = () => {
@@ -100,4 +129,9 @@ export function wsRun(path, payload, onChunk, onDone, onError) {
   return ws
 }
 
-export { resolveWebSocketUrl }
+function appendQuery(path, key, value) {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+}
+
+export { AUTH_TOKEN_KEY, appendQuery, resolveWebSocketUrl }

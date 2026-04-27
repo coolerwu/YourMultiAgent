@@ -6,9 +6,13 @@ agent_ws WebSocket 端点测试：覆盖正常执行与首包校验失败。
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
+from starlette.websockets import WebSocketDisconnect
 
 from server.adapter.agent_ws import router
 from server.container import get_agent_service
+from server.domain.agent.agent_entity import GlobalSettingsEntity, PageAuthConfigEntity
+from server.infra.store.workspace_json import save_global_settings
 
 
 class _AgentServiceStub:
@@ -58,3 +62,21 @@ def test_run_workspace_ws_rejects_empty_user_message():
             error = websocket.receive_json()
 
     assert error == {"type": "error", "message": "user_message 不能为空"}
+
+
+def test_run_workspace_ws_rejects_missing_auth_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    save_global_settings(
+        tmp_path,
+        GlobalSettingsEntity(
+            page_auth=PageAuthConfigEntity(enabled=True, access_key="ak-demo", secret_key="sk-demo")
+        ),
+    )
+    app = _build_app(_AgentServiceStub([]))
+
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/ws/workspaces/ws-1/run"):
+                pass
+
+    assert exc.value.code == 1008

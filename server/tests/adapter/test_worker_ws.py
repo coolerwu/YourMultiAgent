@@ -6,9 +6,13 @@ worker_ws WebSocket 端点测试：覆盖注册成功与首包非法。
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
+from starlette.websockets import WebSocketDisconnect
 
 from server.adapter.worker_ws import router
 from server.container import get_worker_router
+from server.domain.agent.agent_entity import GlobalSettingsEntity, PageAuthConfigEntity
+from server.infra.store.workspace_json import save_global_settings
 
 
 class _WorkerRouterStub:
@@ -71,3 +75,21 @@ def test_worker_ws_rejects_non_register_first_message():
 
     assert error == {"type": "error", "message": "首条消息必须是 register"}
     assert worker_router.registered == []
+
+
+def test_worker_ws_rejects_missing_auth_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    save_global_settings(
+        tmp_path,
+        GlobalSettingsEntity(
+            page_auth=PageAuthConfigEntity(enabled=True, access_key="ak-demo", secret_key="sk-demo")
+        ),
+    )
+    app = _build_app(_WorkerRouterStub())
+
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/ws/worker"):
+                pass
+
+    assert exc.value.code == 1008
