@@ -50,7 +50,7 @@ describe('LoginGate', () => {
   })
 
   it('requires aksk login when auth is enabled', async () => {
-    authApiMock.status.mockResolvedValue({ enabled: true })
+    authApiMock.status.mockResolvedValue({ enabled: true, authenticated: false })
     authApiMock.login.mockResolvedValue({ token: 'token-demo', expires_at: 123 })
 
     render(<LoginGate><div>应用内容</div></LoginGate>)
@@ -65,5 +65,26 @@ describe('LoginGate', () => {
     })
     expect(await screen.findByText('应用内容')).toBeInTheDocument()
     expect(window.localStorage.getItem('yourmultiagent-auth-token')).toBe('token-demo')
+  })
+
+  it('does not trust a stale local token before backend status confirms it', async () => {
+    window.localStorage.setItem('yourmultiagent-auth-token', 'stale-token')
+    authApiMock.status.mockResolvedValue({ enabled: true, authenticated: false })
+
+    render(<LoginGate><div>应用内容</div></LoginGate>)
+
+    expect(await screen.findByText('登录 YourMultiAgent')).toBeInTheDocument()
+    expect(screen.queryByText('应用内容')).not.toBeInTheDocument()
+  })
+
+  it('returns to login when a later api 401 clears the token', async () => {
+    authApiMock.status.mockResolvedValue({ enabled: true, authenticated: true })
+
+    render(<LoginGate><div>应用内容</div></LoginGate>)
+
+    expect(await screen.findByText('应用内容')).toBeInTheDocument()
+    window.dispatchEvent(new CustomEvent('yourmultiagent-auth-token-changed', { detail: { token: '' } }))
+
+    expect(await screen.findByText('登录 YourMultiAgent')).toBeInTheDocument()
   })
 })

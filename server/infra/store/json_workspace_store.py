@@ -12,9 +12,10 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, PageAuthConfigEntity, WorkspaceEntity
+from server.domain.agent.agent_entity import CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, WorkspaceEntity
 from server.domain.agent.workspace_gateway import WorkspaceGateway
 from server.infra.store.workspace_json import (
+    default_page_auth_config,
     graphs_from_payload,
     load_global_settings,
     load_setting_entries,
@@ -264,7 +265,7 @@ def _global_settings_from_legacy(payload: dict) -> GlobalSettingsEntity:
             for item in payload.get("codex_connections", [])
             if isinstance(item, dict) and item.get("name")
         ],
-        page_auth=PageAuthConfigEntity(),
+        page_auth=default_page_auth_config(),
     )
 
 

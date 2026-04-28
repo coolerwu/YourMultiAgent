@@ -280,6 +280,9 @@ async def test_migrates_legacy_global_json_files(tmp_path):
     assert payload["graphs"][0]["name"] == "Legacy Graph"
     settings_payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
     assert settings_payload["global_settings"]["llm_profiles"] == []
+    assert settings_payload["global_settings"]["page_auth"]["enabled"] is True
+    assert settings_payload["global_settings"]["page_auth"]["access_key"].startswith("ak-")
+    assert settings_payload["global_settings"]["page_auth"]["secret_key"].startswith("sk-")
 
 
 @pytest.mark.asyncio

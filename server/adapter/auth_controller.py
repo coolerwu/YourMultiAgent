@@ -4,10 +4,10 @@ adapter/auth_controller.py
 页面 AK/SK 登录接口。
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from server.support.page_auth import load_auth_settings, login_with_aksk
+from server.support.page_auth import extract_bearer_token, load_auth_settings, login_with_aksk, verify_token
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -18,9 +18,10 @@ class LoginReq(BaseModel):
 
 
 @router.get("/status")
-async def auth_status() -> dict:
+async def auth_status(request: Request) -> dict:
     settings = load_auth_settings()
-    return {"enabled": settings.enabled}
+    token = extract_bearer_token(request.headers.get("authorization", ""))
+    return {"enabled": settings.enabled, "authenticated": bool(settings.enabled and verify_token(token))}
 
 
 @router.post("/login")

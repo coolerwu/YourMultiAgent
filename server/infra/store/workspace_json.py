@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import secrets
 from pathlib import Path
 
 from server.domain.agent.agent_entity import (
@@ -78,6 +79,7 @@ def save_setting_entries(data_dir: Path, entries: list[dict]) -> None:
 
 def load_global_settings(data_dir: Path) -> GlobalSettingsEntity:
     raw = read_json(setting_path(data_dir), {"version": 2, "workspaces": []})
+    raw = _ensure_page_auth(raw, data_dir)
     settings = raw.get("global_settings", {}) if isinstance(raw, dict) else {}
     if not isinstance(settings, dict):
         settings = {}
@@ -142,12 +144,40 @@ def save_workspace_payload(path: Path, payload: dict) -> None:
 
 def _page_auth_from_dict(value: object) -> PageAuthConfigEntity:
     if not isinstance(value, dict):
-        return PageAuthConfigEntity()
+        return default_page_auth_config()
     return PageAuthConfigEntity(
-        enabled=bool(value.get("enabled", False)),
+        enabled=bool(value.get("enabled", True)),
         access_key=str(value.get("access_key", "") or ""),
         secret_key=str(value.get("secret_key", "") or ""),
         token_ttl_seconds=_positive_int(value.get("token_ttl_seconds"), 24 * 60 * 60),
+    )
+
+
+def _ensure_page_auth(raw: object, data_dir: Path) -> dict:
+    if not isinstance(raw, dict):
+        raw = {"version": 2, "workspaces": []}
+    settings = raw.get("global_settings")
+    if not isinstance(settings, dict):
+        settings = {}
+        raw["global_settings"] = settings
+    page_auth = settings.get("page_auth")
+    should_create_default = not isinstance(page_auth, dict)
+    if isinstance(page_auth, dict) and bool(page_auth.get("enabled", True)):
+        should_create_default = not page_auth.get("access_key") or not page_auth.get("secret_key")
+    if should_create_default:
+        settings["page_auth"] = dataclasses.asdict(default_page_auth_config())
+        raw["version"] = 2
+        raw.setdefault("workspaces", [])
+        write_json(setting_path(data_dir), raw)
+    return raw
+
+
+def default_page_auth_config() -> PageAuthConfigEntity:
+    return PageAuthConfigEntity(
+        enabled=True,
+        access_key=f"ak-{secrets.token_urlsafe(18)}",
+        secret_key=f"sk-{secrets.token_urlsafe(32)}",
+        token_ttl_seconds=24 * 60 * 60,
     )
 
 

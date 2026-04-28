@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { appendQuery, resolveWebSocketUrl, setAuthToken, wsRun } from './api'
+import { AUTH_TOKEN_CHANGED_EVENT, appendQuery, resolveWebSocketUrl, setAuthToken, wsRun } from './api'
 
 class MockWebSocket {
   static instances = []
@@ -70,5 +70,18 @@ describe('wsRun', () => {
 describe('appendQuery', () => {
   it('preserves existing query params', () => {
     expect(appendQuery('/ws/worker?kind=remote', 'token', 'abc')).toBe('/ws/worker?kind=remote&token=abc')
+  })
+})
+
+describe('setAuthToken', () => {
+  it('emits a token changed event', () => {
+    const listener = vi.fn()
+    window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, listener)
+
+    setAuthToken('token-demo')
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener.mock.calls[0][0].detail).toEqual({ token: 'token-demo' })
+    window.removeEventListener(AUTH_TOKEN_CHANGED_EVENT, listener)
   })
 })

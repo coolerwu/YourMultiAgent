@@ -281,8 +281,10 @@ codex login --device-auth
 
 ## 页面登录 AK/SK
 
-默认不启用页面登录。需要保护 Web 页面和后端接口时，在 `DATA_DIR/setting.json` 的
-`global_settings.page_auth` 中配置：
+页面登录默认启用。启动后如果 `DATA_DIR/setting.json` 中没有 `global_settings.page_auth`，后端会自动
+生成并写入一组 AK/SK；刷新页面后需要使用文件中的 `access_key` / `secret_key` 登录。
+
+也可以手动编辑 `DATA_DIR/setting.json` 的 `global_settings.page_auth`：
 
 ```json
 {

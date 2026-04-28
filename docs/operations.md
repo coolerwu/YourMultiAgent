@@ -29,8 +29,10 @@
 
 ## 页面登录 AK/SK
 
-默认不启用页面登录，适合本机开发。生产或局域网访问时，可通过 `DATA_DIR/setting.json` 中的
-`global_settings.page_auth` 启用页面级 AK/SK 校验：
+页面登录默认启用。启动后如果 `DATA_DIR/setting.json` 中没有 `global_settings.page_auth`，后端会自动
+生成并写入一组 AK/SK；刷新页面后需要使用文件中的 `access_key` / `secret_key` 登录。
+
+也可以手动编辑 `DATA_DIR/setting.json` 中的 `global_settings.page_auth`：
 
 ```json
 {

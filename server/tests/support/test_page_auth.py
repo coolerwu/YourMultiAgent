@@ -1,17 +1,25 @@
 import time
+import json
 
 from server.domain.agent.agent_entity import GlobalSettingsEntity, PageAuthConfigEntity
-from server.infra.store.workspace_json import save_global_settings
+from server.infra.store.workspace_json import save_global_settings, setting_path
 from server.support import page_auth
 
 
-def test_auth_disabled_without_page_auth(monkeypatch, tmp_path):
+def test_auth_enabled_with_generated_default_without_page_auth(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
     settings = page_auth.load_auth_settings()
+    payload = json.loads(setting_path(tmp_path).read_text(encoding="utf-8"))
+    saved_page_auth = payload["global_settings"]["page_auth"]
 
-    assert settings.enabled is False
-    assert page_auth.verify_token("") is True
+    assert settings.enabled is True
+    assert settings.access_key.startswith("ak-")
+    assert settings.secret_key.startswith("sk-")
+    assert saved_page_auth["enabled"] is True
+    assert saved_page_auth["access_key"] == settings.access_key
+    assert saved_page_auth["secret_key"] == settings.secret_key
+    assert page_auth.verify_token("") is False
 
 
 def test_auth_disabled_when_page_auth_flag_is_false(monkeypatch, tmp_path):

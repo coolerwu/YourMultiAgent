@@ -5,6 +5,7 @@
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const AUTH_TOKEN_KEY = 'yourmultiagent-auth-token'
+const AUTH_TOKEN_CHANGED_EVENT = 'yourmultiagent-auth-token-changed'
 
 export function getAuthToken() {
   return window.localStorage.getItem(AUTH_TOKEN_KEY) || ''
@@ -16,6 +17,7 @@ export function setAuthToken(token) {
   } else {
     window.localStorage.removeItem(AUTH_TOKEN_KEY)
   }
+  window.dispatchEvent(new CustomEvent(AUTH_TOKEN_CHANGED_EVENT, { detail: { token: token || '' } }))
 }
 
 async function request(method, path, body) {
@@ -134,4 +136,4 @@ function appendQuery(path, key, value) {
   return `${path}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`
 }
 
-export { AUTH_TOKEN_KEY, appendQuery, resolveWebSocketUrl }
+export { AUTH_TOKEN_CHANGED_EVENT, AUTH_TOKEN_KEY, appendQuery, resolveWebSocketUrl }

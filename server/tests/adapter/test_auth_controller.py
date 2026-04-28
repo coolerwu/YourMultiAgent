@@ -5,14 +5,14 @@ from server.infra.store.workspace_json import save_global_settings
 from server.main import app
 
 
-def test_auth_status_disabled_by_default(monkeypatch, tmp_path):
+def test_auth_status_enabled_by_generated_default(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
 
     with TestClient(app) as client:
         response = client.get("/api/auth/status")
 
     assert response.status_code == 200
-    assert response.json() == {"enabled": False}
+    assert response.json() == {"enabled": True, "authenticated": False}
 
 
 def test_auth_login_and_api_middleware(monkeypatch, tmp_path):
@@ -26,13 +26,17 @@ def test_auth_login_and_api_middleware(monkeypatch, tmp_path):
 
     with TestClient(app) as client:
         unauthorized = client.get("/api/settings/providers")
+        status_without_token = client.get("/api/auth/status")
         login = client.post("/api/auth/login", json={"access_key": "ak-demo", "secret_key": "sk-demo"})
         token = login.json()["token"]
+        status_with_token = client.get("/api/auth/status", headers={"Authorization": f"Bearer {token}"})
         authorized = client.get("/api/settings/providers", headers={"Authorization": f"Bearer {token}"})
 
     assert unauthorized.status_code == 401
+    assert status_without_token.json() == {"enabled": True, "authenticated": False}
     assert login.status_code == 200
     assert token
+    assert status_with_token.json() == {"enabled": True, "authenticated": True}
     assert authorized.status_code == 200
 
 

@@ -1,7 +1,7 @@
 import { LockOutlined, LoginOutlined } from '@ant-design/icons'
 import { Alert, Button, Card, Form, Input, Typography, message } from 'antd'
 import { useEffect, useState } from 'react'
-import { authApi, getAuthToken, setAuthToken } from '../utils/api'
+import { AUTH_TOKEN_CHANGED_EVENT, authApi, getAuthToken, setAuthToken } from '../utils/api'
 
 const { Text } = Typography
 
@@ -15,11 +15,21 @@ export default function LoginGate({ children }) {
     authApi.status()
       .then((status) => {
         setAuthEnabled(Boolean(status.enabled))
-        setAuthenticated(!status.enabled || Boolean(getAuthToken()))
+        setAuthenticated(!status.enabled || Boolean(status.authenticated))
       })
       .catch((e) => message.error(e.message))
       .finally(() => setChecking(false))
   }, [])
+
+  useEffect(() => {
+    const handleTokenChange = () => {
+      if (authEnabled) {
+        setAuthenticated(Boolean(getAuthToken()))
+      }
+    }
+    window.addEventListener(AUTH_TOKEN_CHANGED_EVENT, handleTokenChange)
+    return () => window.removeEventListener(AUTH_TOKEN_CHANGED_EVENT, handleTokenChange)
+  }, [authEnabled])
 
   const handleLogin = async (values) => {
     setSubmitting(true)
