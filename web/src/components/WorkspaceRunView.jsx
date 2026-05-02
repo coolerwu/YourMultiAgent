@@ -91,6 +91,7 @@ export default function WorkspaceRunView({ workspace }) {
   const [messages, setMessages] = useState([])
   const [running, setRunning] = useState(false)
   const [states, setStates] = useState({})
+  const [runState, setRunState] = useState({ id: '', status: '', tasks: [] })
   const [orchestration, setOrchestration] = useState({ coordinator: null, workers: [] })
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState('')
@@ -121,6 +122,7 @@ export default function WorkspaceRunView({ workspace }) {
     const next = {}
     participants.forEach((agent) => { next[agent.id] = { status: 'idle', step: '' } })
     setStates(next)
+    setRunState({ id: '', status: '', tasks: [] })
   }, [orchestration])
 
   useEffect(() => {
@@ -275,8 +277,68 @@ export default function WorkspaceRunView({ workspace }) {
                 memory_items: chunk.memory_items || [],
               }))
               break
+            case 'run_started':
+              setRunState({ id: chunk.run_id || '', status: chunk.status || 'running', tasks: [] })
+              append({ role: 'event', actor_name: chunk.actor_name, content: '本次 Run 已开始' })
+              break
             case 'plan_created':
-              append({ role: 'event', actor_name: chunk.coordinator_name, content: `${chunk.coordinator_name} 开始拆解任务` })
+              if (Array.isArray(chunk.tasks)) {
+                setRunState((prev) => ({
+                  ...prev,
+                  id: chunk.run_id || prev.id,
+                  status: prev.status || 'running',
+                  tasks: chunk.tasks.map((task) => ({
+                    id: task.id,
+                    worker_id: task.worker_id,
+                    worker_name: task.worker_name,
+                    instruction: task.instruction,
+                    dependencies: task.dependencies || [],
+                    status: task.status || 'pending',
+                    summary: '',
+                    artifacts: [],
+                  })),
+                }))
+                append({ role: 'event', actor_name: chunk.coordinator_name, content: `${chunk.coordinator_name} 已生成任务计划，共 ${chunk.tasks.length} 个任务` })
+              } else {
+                append({ role: 'event', actor_name: chunk.coordinator_name, content: `${chunk.coordinator_name} 开始拆解任务` })
+              }
+              break
+            case 'task_started':
+              setRunState((prev) => updateTaskState(prev, chunk.task_id, {
+                status: 'running',
+                worker_name: chunk.worker_name,
+                instruction: chunk.instruction,
+                dependencies: chunk.dependencies || [],
+              }))
+              append({ role: 'event', actor_name: chunk.actor_name, content: `任务 ${chunk.task_id} 开始执行：${chunk.worker_name}` })
+              break
+            case 'task_finished':
+              setRunState((prev) => updateTaskState(prev, chunk.task_id, {
+                status: 'succeeded',
+                worker_name: chunk.worker_name,
+                summary: chunk.summary || '',
+                artifacts: chunk.artifacts || [],
+              }))
+              append({ role: 'event', actor_name: chunk.actor_name, content: `任务 ${chunk.task_id} 已完成` })
+              break
+            case 'task_failed':
+              setRunState((prev) => updateTaskState(prev, chunk.task_id, {
+                status: 'failed',
+                worker_name: chunk.worker_name,
+                error: chunk.error || '',
+              }))
+              append({ role: 'event', actor_name: chunk.actor_name, content: `任务 ${chunk.task_id} 失败：${chunk.error || ''}` })
+              break
+            case 'artifact_recorded':
+              setRunState((prev) => appendTaskArtifact(prev, chunk.task_id, {
+                path: chunk.path,
+                description: chunk.description || '',
+              }))
+              append({ role: 'event', actor_name: chunk.actor_name, content: `记录交付物：${chunk.path}` })
+              break
+            case 'run_finished':
+              setRunState((prev) => ({ ...prev, status: chunk.status || 'succeeded' }))
+              append({ role: 'event', actor_name: chunk.actor_name, content: chunk.summary || '本次 Run 已完成' })
               break
             case 'coordinator_start':
             case 'worker_start':
@@ -498,6 +560,29 @@ export default function WorkspaceRunView({ workspace }) {
             ))}
           </div>
         </div>
+        {runState.tasks.length > 0 && (
+          <div data-testid="run-task-panel" style={{ padding: '10px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Text strong>任务 DAG {runState.status ? `· ${formatRunStatus(runState.status)}` : ''}</Text>
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                {runState.tasks.map((task) => (
+                  <div key={task.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%' }}>
+                    <Tag color={taskStatusColor(task.status)}>{formatTaskStatus(task.status)}</Tag>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Text strong>{task.id}</Text>
+                      <Text type="secondary"> · {task.worker_name || task.worker_id || 'Worker'}</Text>
+                      <div style={{ ...LONG_TEXT_STYLE }}>{task.instruction}</div>
+                      {task.dependencies?.length ? <Text type="secondary">依赖：{task.dependencies.join(', ')}</Text> : null}
+                      {task.summary ? <div style={{ ...LONG_TEXT_STYLE }}><Text type="secondary">结果：</Text>{task.summary}</div> : null}
+                      {task.error ? <div style={{ ...LONG_TEXT_STYLE }}><Text type="danger">错误：</Text>{task.error}</div> : null}
+                      {task.artifacts?.length ? <div style={{ ...LONG_TEXT_STYLE }}><Text type="secondary">交付物：</Text>{task.artifacts.map((item) => item.path).join(', ')}</div> : null}
+                    </div>
+                  </div>
+                ))}
+              </Space>
+            </Space>
+          </div>
+        )}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', background: '#fff' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
             <Button icon={<CopyOutlined />} onClick={copyAllMessages} disabled={messages.length === 0}>复制运行记录</Button>
@@ -552,4 +637,74 @@ function formatTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function updateTaskState(runState, taskId, updates) {
+  if (!taskId) return runState
+  const exists = runState.tasks.some((task) => task.id === taskId)
+  const nextTask = {
+    id: taskId,
+    worker_id: updates.worker_id || '',
+    worker_name: updates.worker_name || '',
+    instruction: updates.instruction || '',
+    dependencies: updates.dependencies || [],
+    status: updates.status || 'pending',
+    summary: updates.summary || '',
+    artifacts: updates.artifacts || [],
+    error: updates.error || '',
+  }
+  if (!exists) {
+    return { ...runState, tasks: [...runState.tasks, nextTask] }
+  }
+  return {
+    ...runState,
+    tasks: runState.tasks.map((task) => (
+      task.id === taskId
+        ? {
+          ...task,
+          ...updates,
+          artifacts: updates.artifacts ?? task.artifacts,
+        }
+        : task
+    )),
+  }
+}
+
+function appendTaskArtifact(runState, taskId, artifact) {
+  if (!taskId || !artifact?.path) return runState
+  return {
+    ...runState,
+    tasks: runState.tasks.map((task) => (
+      task.id === taskId
+        ? { ...task, artifacts: [...(task.artifacts || []), artifact] }
+        : task
+    )),
+  }
+}
+
+function formatTaskStatus(status) {
+  const labels = {
+    pending: '待执行',
+    running: '执行中',
+    succeeded: '完成',
+    failed: '失败',
+    skipped: '跳过',
+  }
+  return labels[status] || status || '待执行'
+}
+
+function formatRunStatus(status) {
+  const labels = {
+    running: '执行中',
+    succeeded: '完成',
+    failed: '失败',
+  }
+  return labels[status] || status
+}
+
+function taskStatusColor(status) {
+  if (status === 'running') return 'processing'
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'error'
+  return 'default'
 }

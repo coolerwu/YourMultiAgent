@@ -9,6 +9,7 @@ import json
 import pytest
 
 from server.domain.agent.agent_entity import AgentEntity, ChatMessageEntity, ChatSessionEntity, CodexConnectionEntity, GlobalSettingsEntity, LLMProfileEntity, LLMProvider, MemoryItemEntity, PageAuthConfigEntity, WorkspaceEntity, WorkspaceKind
+from server.domain.agent.run_entity import ArtifactEntity, RunEntity, TaskEntity
 from server.infra.store.json_workspace_store import JsonWorkspaceStore
 from server.infra.store.workspace_json import setting_path, workspace_file_path
 
@@ -103,6 +104,44 @@ def _make_ws(ws_id="ws-1") -> WorkspaceEntity:
                         actor_name="主控智能体",
                     ),
                 ],
+                runs=[
+                    RunEntity(
+                        id="run-1",
+                        status="succeeded",
+                        user_message="做一个页面",
+                        plan_text="先产品后研发",
+                        tasks=[
+                            TaskEntity(
+                                id="task-1",
+                                worker_id="worker-1",
+                                instruction="实现页面",
+                                status="succeeded",
+                                result="已完成",
+                                artifacts=[
+                                    ArtifactEntity(
+                                        path="shared/page.md",
+                                        task_id="task-1",
+                                        worker_id="worker-1",
+                                        description="页面说明",
+                                        created_at="2026-01-01T00:02:00+00:00",
+                                    )
+                                ],
+                            )
+                        ],
+                        artifacts=[
+                            ArtifactEntity(
+                                path="shared/page.md",
+                                task_id="task-1",
+                                worker_id="worker-1",
+                                description="页面说明",
+                                created_at="2026-01-01T00:02:00+00:00",
+                            )
+                        ],
+                        summary="全部完成",
+                        created_at="2026-01-01T00:00:00+00:00",
+                        updated_at="2026-01-01T00:02:00+00:00",
+                    )
+                ],
             )
         ],
     )
@@ -191,6 +230,8 @@ async def test_enum_roundtrip(tmp_path):
     assert result.workers[1].order == 1
     assert result.sessions[0].title == "历史任务"
     assert result.sessions[0].memory_items[0].content == "实现页面功能"
+    assert result.sessions[0].runs[0].tasks[0].instruction == "实现页面"
+    assert result.sessions[0].runs[0].artifacts[0].path == "shared/page.md"
 
 
 @pytest.mark.asyncio

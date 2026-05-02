@@ -2,8 +2,8 @@
 app/agent/workspace_executor.py
 
 Workspace 单编排执行器：
-- 先运行 Coordinator 生成拆解计划
-- 再按顺序调度多个 Worker
+- 先运行 Coordinator 生成任务计划
+- 再按任务依赖调度 Worker
 - 共享交接物约定写入 Workspace 根目录下的 shared/
 
 位于 app 层，负责运行流程编排，不承载纯领域规则定义。
@@ -11,15 +11,31 @@ Workspace 单编排执行器：
 
 from __future__ import annotations
 
+import re
+import uuid
 from pathlib import Path
 from typing import AsyncGenerator
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from server.app.agent.task_context_builder import build_task_assignment
+from server.app.agent.task_planner import parse_task_plan
+from server.app.agent.task_scheduler import next_ready_tasks
 from server.domain.agent.agent_entity import AgentEntity, ChatSessionEntity, WorkspaceEntity, WorkspaceKind
 from server.domain.agent.llm_gateway import LLMGateway
-from server.domain.agent.agent_harness import AgentHarness
-from server.domain.agent.session_history import build_runtime_messages
+from server.domain.agent.agent_runtime import AgentRuntime
+from server.domain.agent.run_entity import (
+    RUN_STATUS_FAILED,
+    RUN_STATUS_RUNNING,
+    RUN_STATUS_SUCCEEDED,
+    TASK_STATUS_FAILED,
+    TASK_STATUS_RUNNING,
+    TASK_STATUS_SUCCEEDED,
+    ArtifactEntity,
+    RunEntity,
+    TaskEntity,
+)
+from server.domain.agent.session_history import build_runtime_messages, now_iso
 from server.domain.worker.capability_entity import CapabilityEntity
 from server.domain.worker.worker_gateway import WorkerGateway
 from server.support.app_logging import get_logger, log_context, log_event
@@ -75,8 +91,20 @@ class WorkspaceExecutor:
                 if coordinator is None:
                     raise ValueError("Workspace 尚未配置主控智能体")
 
+                run = _create_run(user_message)
+                session.runs.insert(0, run)
+                yield {
+                    "type": "run_started",
+                    "run_id": run.id,
+                    "status": run.status,
+                    "user_message": user_message,
+                    "actor_id": coordinator.id,
+                    "actor_name": coordinator.name,
+                    "actor_kind": "coordinator",
+                }
                 yield {
                     "type": "plan_created",
+                    "run_id": run.id,
                     "coordinator": coordinator.id,
                     "coordinator_name": coordinator.name,
                 }
@@ -90,21 +118,93 @@ class WorkspaceExecutor:
                     if event.get("type") == "text" and event.get("node") == coordinator.id:
                         plan_text += event.get("content", "")
                     yield event
+                run.plan_text = plan_text
+                if not self._workspace.workers:
+                    run.status = RUN_STATUS_SUCCEEDED
+                    run.summary = plan_text
+                    run.updated_at = now_iso()
+                    yield {
+                        "type": "run_summary",
+                        "run_id": run.id,
+                        "actor_id": coordinator.id,
+                        "actor_name": coordinator.name,
+                        "actor_kind": "coordinator",
+                        "summary": run.summary,
+                    }
+                    yield {
+                        "type": "run_finished",
+                        "run_id": run.id,
+                        "status": run.status,
+                        "summary": run.summary,
+                        "actor_id": coordinator.id,
+                        "actor_name": coordinator.name,
+                        "actor_kind": "coordinator",
+                    }
+                    log_event(logger, event="workspace_run_finished", layer="agent", action="workspace_run", status="success")
+                    yield {"type": "done"}
+                    return
+                run.tasks = parse_task_plan(plan_text, self._workspace.workers)
+                run.updated_at = now_iso()
+
+                yield {
+                    "type": "plan_created",
+                    "run_id": run.id,
+                    "coordinator": coordinator.id,
+                    "coordinator_name": coordinator.name,
+                    "tasks": [_task_event_payload(task, self._workspace.workers) for task in run.tasks],
+                    "edges": [
+                        {"from": dependency, "to": task.id}
+                        for task in run.tasks
+                        for dependency in task.dependencies
+                    ],
+                }
 
                 worker_outputs: list[dict[str, str]] = []
-                for worker in _ordered_workers(self._workspace.workers):
-                    assignment = _build_assignment(plan_text, user_message, worker)
+                while True:
+                    ready_tasks = next_ready_tasks(run.tasks)
+                    if not ready_tasks:
+                        unfinished = [task.id for task in run.tasks if task.status not in {TASK_STATUS_SUCCEEDED, TASK_STATUS_FAILED}]
+                        if unfinished:
+                            raise ValueError(f"任务依赖无法继续调度: {', '.join(unfinished)}")
+                        break
+                    task = ready_tasks[0]
+                    worker = _find_worker(self._workspace.workers, task.worker_id)
+                    if worker is None:
+                        raise ValueError(f"任务 {task.id} 引用了不存在的 Worker: {task.worker_id}")
+                    assignment = build_task_assignment(
+                        user_message=user_message,
+                        plan_text=plan_text,
+                        task=task,
+                        completed_tasks=[item for item in run.tasks if item.status == TASK_STATUS_SUCCEEDED],
+                    )
+                    task.status = TASK_STATUS_RUNNING
+                    run.updated_at = now_iso()
                     log_event(
                         logger,
-                        event="worker_assignment_created",
+                        event="task_assignment_created",
                         layer="agent",
-                        action="assign_worker",
+                        action="assign_task",
                         status="success",
                         worker_id=worker.id,
-                        extra={"worker_name": worker.name},
+                        extra={"worker_name": worker.name, "task_id": task.id},
                     )
                     yield {
+                        "type": "task_started",
+                        "run_id": run.id,
+                        "task_id": task.id,
+                        "worker": worker.id,
+                        "worker_id": worker.id,
+                        "worker_name": worker.name,
+                        "instruction": task.instruction,
+                        "dependencies": list(task.dependencies),
+                        "actor_id": worker.id,
+                        "actor_name": worker.name,
+                        "actor_kind": "worker",
+                    }
+                    yield {
                         "type": "task_assigned",
+                        "run_id": run.id,
+                        "task_id": task.id,
                         "worker": worker.id,
                         "worker_name": worker.name,
                         "actor_id": coordinator.id,
@@ -113,18 +213,75 @@ class WorkspaceExecutor:
                         "assignment": assignment,
                     }
                     output = ""
-                    async for event in self._stream_agent(
-                        agent=worker,
-                        event_type_prefix="worker",
-                        session=session,
-                        user_message=assignment,
-                    ):
-                        if event.get("type") == "text" and event.get("node") == worker.id:
-                            output += event.get("content", "")
-                        yield event
+                    try:
+                        async for event in self._stream_agent(
+                            agent=worker,
+                            event_type_prefix="worker",
+                            session=session,
+                            user_message=assignment,
+                        ):
+                            if event.get("type") == "text" and event.get("node") == worker.id:
+                                output += event.get("content", "")
+                            yield event
+                    except Exception as exc:
+                        task.status = TASK_STATUS_FAILED
+                        task.error = str(exc)
+                        run.status = RUN_STATUS_FAILED
+                        run.error = str(exc)
+                        run.updated_at = now_iso()
+                        yield {
+                            "type": "task_failed",
+                            "run_id": run.id,
+                            "task_id": task.id,
+                            "worker": worker.id,
+                            "worker_id": worker.id,
+                            "worker_name": worker.name,
+                            "error": str(exc),
+                            "actor_id": worker.id,
+                            "actor_name": worker.name,
+                            "actor_kind": "worker",
+                        }
+                        raise
+                    task.status = TASK_STATUS_SUCCEEDED
+                    task.result = output
+                    task.artifacts = _extract_artifacts(output, task, worker)
+                    run.artifacts.extend(task.artifacts)
+                    run.updated_at = now_iso()
                     worker_outputs.append({"worker_name": worker.name, "output": output})
+                    for artifact in task.artifacts:
+                        yield {
+                            "type": "artifact_recorded",
+                            "run_id": run.id,
+                            "task_id": task.id,
+                            "worker": worker.id,
+                            "worker_id": worker.id,
+                            "worker_name": worker.name,
+                            "path": artifact.path,
+                            "description": artifact.description,
+                            "actor_id": worker.id,
+                            "actor_name": worker.name,
+                            "actor_kind": "worker",
+                        }
+                    yield {
+                        "type": "task_finished",
+                        "run_id": run.id,
+                        "task_id": task.id,
+                        "worker": worker.id,
+                        "worker_id": worker.id,
+                        "worker_name": worker.name,
+                        "summary": output[:240],
+                        "artifacts": [
+                            {"path": artifact.path, "description": artifact.description}
+                            for artifact in task.artifacts
+                        ],
+                        "actor_id": worker.id,
+                        "actor_name": worker.name,
+                        "actor_kind": "worker",
+                    }
                     yield {
                         "type": "worker_result",
+                        "run_id": run.id,
+                        "task_id": task.id,
                         "worker": worker.id,
                         "worker_name": worker.name,
                         "actor_id": worker.id,
@@ -133,16 +290,35 @@ class WorkspaceExecutor:
                         "summary": output[:240],
                     }
 
+                run.status = RUN_STATUS_SUCCEEDED
+                run.summary = _build_run_summary(plan_text, worker_outputs)
+                run.updated_at = now_iso()
                 yield {
                     "type": "run_summary",
+                    "run_id": run.id,
                     "actor_id": coordinator.id,
                     "actor_name": coordinator.name,
                     "actor_kind": "coordinator",
-                    "summary": _build_run_summary(plan_text, worker_outputs),
+                    "summary": run.summary,
+                }
+                yield {
+                    "type": "run_finished",
+                    "run_id": run.id,
+                    "status": run.status,
+                    "summary": run.summary,
+                    "actor_id": coordinator.id,
+                    "actor_name": coordinator.name,
+                    "actor_kind": "coordinator",
                 }
                 log_event(logger, event="workspace_run_finished", layer="agent", action="workspace_run", status="success")
                 yield {"type": "done"}
             except Exception as exc:
+                for run in session.runs:
+                    if run.status == RUN_STATUS_RUNNING:
+                        run.status = RUN_STATUS_FAILED
+                        run.error = str(exc)
+                        run.updated_at = now_iso()
+                        break
                 log_event(
                     logger,
                     event="workspace_run_failed",
@@ -186,7 +362,7 @@ class WorkspaceExecutor:
                     provider=str(agent.provider),
                     model=agent.model,
                 )
-                harness = AgentHarness(
+                runtime = AgentRuntime(
                     node_id=agent.id,
                     agent_name=agent.name,
                     provider=str(agent.provider),
@@ -217,7 +393,7 @@ class WorkspaceExecutor:
                         "work_dir": work_dir,
                     },
                 )
-                async for event in harness.run([
+                async for event in runtime.run([
                     SystemMessage(content=_build_agent_system_prompt(agent, capabilities)),
                     *runtime_messages,
                     HumanMessage(content=user_message),
@@ -293,13 +469,69 @@ def _ordered_workers(workers: list[AgentEntity]) -> list[AgentEntity]:
     ]
 
 
+def _create_run(user_message: str) -> RunEntity:
+    timestamp = now_iso()
+    return RunEntity(
+        id=str(uuid.uuid4()),
+        status=RUN_STATUS_RUNNING,
+        user_message=user_message,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+
+
+def _find_worker(workers: list[AgentEntity], worker_id: str) -> AgentEntity | None:
+    return next((worker for worker in workers if worker.id == worker_id), None)
+
+
+def _task_event_payload(task: TaskEntity, workers: list[AgentEntity]) -> dict:
+    worker = _find_worker(workers, task.worker_id)
+    return {
+        "id": task.id,
+        "worker_id": task.worker_id,
+        "worker_name": worker.name if worker else task.worker_id,
+        "instruction": task.instruction,
+        "dependencies": list(task.dependencies),
+        "status": task.status,
+        "expected_output": task.expected_output,
+    }
+
+
+def _extract_artifacts(output: str, task: TaskEntity, worker: AgentEntity) -> list[ArtifactEntity]:
+    artifacts: list[ArtifactEntity] = []
+    seen: set[str] = set()
+    for match in re.findall(r"(?:`([^`]+)`|([A-Za-z0-9_./-]+\.[A-Za-z0-9]+))", output):
+        path = next((item for item in match if item), "").strip()
+        if not path or path in seen:
+            continue
+        if "/" not in path and "." not in path:
+            continue
+        seen.add(path)
+        artifacts.append(
+            ArtifactEntity(
+                path=path,
+                task_id=task.id,
+                worker_id=worker.id,
+                description=f"{worker.name} 输出中提到的交付物",
+                created_at=now_iso(),
+            )
+        )
+    return artifacts
+
+
 def _build_coordinator_message(user_message: str, workers: list[AgentEntity]) -> str:
-    worker_names = "、".join(worker.name for worker in workers) if workers else "暂无 Worker"
+    worker_lines = "\n".join(
+        f"- id={worker.id}; name={worker.name}; order={worker.order or index}; prompt={worker.system_prompt[:160]}"
+        for index, worker in enumerate(_ordered_workers(workers), start=1)
+    ) or "- 暂无 Worker"
     return (
         f"用户任务：{user_message}\n\n"
-        f"可用 Worker：{worker_names}\n"
-        "请先输出简明任务拆解，说明每个 Worker 负责什么，"
-        "并统一要求共享交接物写入当前 Workspace 的 `shared/` 目录，例如 `workspace/<workspace_name>/shared/`。"
+        f"可用 Worker：\n{worker_lines}\n\n"
+        "请输出一个可执行任务计划。优先返回严格 JSON，不要使用 Markdown 代码块；结构如下：\n"
+        '{"tasks":[{"id":"task-1","worker_id":"worker-id","instruction":"任务说明",'
+        '"dependencies":[],"expected_output":"期望输出"}]}\n'
+        "任务必须只引用可用 Worker 的 id，dependencies 必须引用同一 JSON 中已有任务 id。"
+        "如果任务需要交接物，统一要求写入当前 Workspace 的 `shared/` 目录。"
     )
 
 

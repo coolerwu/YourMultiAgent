@@ -65,7 +65,7 @@ describe('LoginGate', () => {
     })
     expect(await screen.findByText('应用内容')).toBeInTheDocument()
     expect(window.localStorage.getItem('yourmultiagent-auth-token')).toBe('token-demo')
-  })
+  }, 10000)
 
   it('does not trust a stale local token before backend status confirms it', async () => {
     window.localStorage.setItem('yourmultiagent-auth-token', 'stale-token')

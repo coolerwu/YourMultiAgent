@@ -1,7 +1,7 @@
 """
-tests/domain/agent/test_agent_harness.py
+tests/domain/agent/test_agent_runtime.py
 
-AgentHarness 单测：覆盖 Step -> Decide -> Execute -> Transition 调用链。
+AgentRuntime 单测：覆盖 Step -> Decide -> Execute -> Transition 调用链。
 """
 
 from unittest.mock import AsyncMock
@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain_core.messages import HumanMessage
 
-from server.domain.agent.agent_harness import AgentHarness, HarnessState, HarnessStep, decide_next_step
+from server.domain.agent.agent_runtime import AgentRuntime, RuntimeState, RuntimeStep, decide_next_step
 
 
 class _Chunk:
@@ -51,21 +51,21 @@ class _FakeLLM:
 
 
 def test_decide_next_step_returns_finalize_when_tool_round_limit_reached():
-    state = HarnessState(
+    state = RuntimeState(
         messages=[],
-        current_step=HarnessStep.TRANSITION,
+        current_step=RuntimeStep.TRANSITION,
         last_response=_Chunk(tool_calls=[{"id": "call-1", "name": "read_file", "args": {}}]),
         round=1,
     )
 
     decision = decide_next_step(state, max_rounds=1)
 
-    assert decision.next_step == HarnessStep.FINALIZE
+    assert decision.next_step == RuntimeStep.FINALIZE
     assert decision.reason == "tool_round_limit_reached"
 
 
 @pytest.mark.asyncio
-async def test_agent_harness_runs_step_decide_execute_transition_decide_chain():
+async def test_agent_runtime_runs_step_decide_execute_transition_decide_chain():
     llm = _FakeLLM(
         bound_responses=[
             _Chunk(
@@ -77,7 +77,7 @@ async def test_agent_harness_runs_step_decide_execute_transition_decide_chain():
     )
     worker = AsyncMock()
     worker.invoke = AsyncMock(return_value="README 内容")
-    harness = AgentHarness(
+    runtime = AgentRuntime(
         node_id="writer",
         agent_name="Writer",
         provider="anthropic",
@@ -90,7 +90,7 @@ async def test_agent_harness_runs_step_decide_execute_transition_decide_chain():
         max_rounds=3,
     )
 
-    events = [event async for event in harness.run([HumanMessage(content="分析 README")])]
+    events = [event async for event in runtime.run([HumanMessage(content="分析 README")])]
 
     # step_changed 事件已移除，不再对外暴露
     assert not any(event["type"] == "step_changed" for event in events)
@@ -105,7 +105,7 @@ async def test_agent_harness_runs_step_decide_execute_transition_decide_chain():
 
 
 @pytest.mark.asyncio
-async def test_agent_harness_finalizes_after_max_rounds():
+async def test_agent_runtime_finalizes_after_max_rounds():
     llm = _FakeLLM(
         bound_responses=[
             _Chunk(
@@ -117,7 +117,7 @@ async def test_agent_harness_finalizes_after_max_rounds():
     )
     worker = AsyncMock()
     worker.invoke = AsyncMock(return_value="README 内容")
-    harness = AgentHarness(
+    runtime = AgentRuntime(
         node_id="writer",
         agent_name="Writer",
         provider="anthropic",
@@ -130,7 +130,7 @@ async def test_agent_harness_finalizes_after_max_rounds():
         max_rounds=1,
     )
 
-    events = [event async for event in harness.run([HumanMessage(content="分析 README")])]
+    events = [event async for event in runtime.run([HumanMessage(content="分析 README")])]
 
     # step_changed 事件已移除，不再对外暴露
     assert not any(event["type"] == "step_changed" for event in events)

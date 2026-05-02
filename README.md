@@ -7,12 +7,14 @@
 YourMultiAgent 面向“个人可控、多 Agent 协作”的开发与实验场景，当前目标是：
 
 - 在一个 Workspace 中管理 Agent 与 Worker。
-- 通过 Web 页面完成配置、运行与结果观察。
+- 由 Coordinator 生成任务计划，后端按 Task DAG 调度 Worker 执行。
+- 通过 Web 页面完成配置、运行、任务状态与交付物观察。
 - 用会话历史（summary + memory）在长对话下保持上下文连续性。
 
 ## 核心能力
 
-- **多 Agent 协作执行**：支持按 Workspace 组织运行链路。
+- **多 Agent 协作执行**：支持按 Workspace 组织运行链路，并以 Run / Task / Artifact 追踪执行过程。
+- **Task DAG 调度**：Coordinator 输出结构化计划，后端校验依赖并调度 Worker；旧顺序 Worker 配置可退化为线性 DAG。
 - **双 Worker 模式**：
   - Local Worker（服务内置，开箱即用）
   - Remote Worker（通过 WebSocket 挂载远端能力）

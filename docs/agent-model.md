@@ -32,12 +32,12 @@ flowchart LR
 
 - `Central Server`
   - 当前“大脑”所在容器
-  - 包含主控执行器、Worker 顺序调度、会话历史注入、工具路由和运行事件流
+  - 包含 Coordinator 计划生成、Task DAG 校验与调度、会话历史注入、工具路由和运行事件流
 - `LLM Providers`
   - 为主控和 Worker 提供推理
   - 不负责持久化会话和执行工具
 - `Workspace Store`
-  - 保存 Workspace、会话、summary、memory
+  - 保存 Workspace、会话、Run、Task、Artifact、summary、memory
 - `Local Worker Runtime`
   - 提供进程内 capability
 - `Remote Worker Runtime`
@@ -48,7 +48,9 @@ flowchart LR
 ## 当前大脑模型
 
 - 当前大脑位于 `Central Server`
-- 主控先生成拆解计划，再按顺序执行 Worker
+- 主控先生成结构化任务计划，后端将计划解析为 Task DAG，再按依赖调度 Worker
+- 每次用户执行会创建一个 `Run`，Run 下包含任务列表、任务状态、Worker 输出和 Artifact 引用
+- 若 Coordinator 没有返回标准 JSON，后端会将现有 Worker 顺序退化为线性 DAG，以兼容旧 Workspace
 - Workspace 模式下，主控可配置 `git_workflow`。该配置会随 `workspace.json` 持久化，当前用于记录仓库地址、基础分支、分支/提交/PR 模板和人工 Review 要求；仓库地址可通过后端 Git 验证端点检查本地路径或远程分支可访问性
 - Agent 实际上下文由以下内容拼接
   1. `system_prompt`
@@ -61,8 +63,8 @@ flowchart LR
 
 ## 当前边界
 
-- 编排仍是单主控、顺序 Worker，不是 DAG 调度
-- Worker 协作主要依赖自然语言 assignment 和 `shared/` 交接约定
+- 编排是单 Coordinator + Task DAG 调度，第一阶段同一 ready 层仍保守顺序执行，后续可扩展并发
+- Worker 协作依赖结构化 Task、上游结果摘要和 `shared/` 交接约定
 - 浏览器、代码执行等专用能力优先通过 Worker 扩展，而不是直接塞进大脑
 
 ## 对应代码位置
@@ -70,8 +72,14 @@ flowchart LR
 - 主控与执行器
   - `server/app/agent/orchestrator.py`
   - `server/app/agent/workspace_executor.py`
+  - `server/app/agent/task_planner.py`
+  - `server/app/agent/task_scheduler.py`
+  - `server/app/agent/task_context_builder.py`
+- Run / Task / Artifact 领域模型
+  - `server/domain/agent/run_entity.py`
 - 单节点 Agent 运行时
-  - `server/domain/agent/agent_harness.py`
+  - `server/domain/agent/agent_runtime.py`
+  - `AgentRuntime` 是单个 Agent 配置的一次上下文对话运行循环，不是可独立调度、可持久控制的 Agent 本体
 - 会话历史
   - `server/domain/agent/session_history.py`
 - Worker 抽象与路由

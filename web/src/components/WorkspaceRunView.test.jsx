@@ -147,6 +147,39 @@ describe('WorkspaceRunView', () => {
     expect(await screen.findByTestId('agent-step-worker-1')).toHaveTextContent('Step: 执行')
   })
 
+  it('renders streamed run task DAG state', async () => {
+    workspaceApiMock.run.mockImplementation(async (_workspaceId, _payload, onChunk) => {
+      onChunk({ type: 'run_started', run_id: 'run-1', status: 'running', actor_name: '主控' })
+      onChunk({
+        type: 'plan_created',
+        run_id: 'run-1',
+        coordinator_name: '主控',
+        tasks: [
+          { id: 'task-1', worker_id: 'worker-1', worker_name: '研发', instruction: '实现页面', dependencies: [] },
+        ],
+      })
+      onChunk({ type: 'task_started', task_id: 'task-1', worker_id: 'worker-1', worker_name: '研发', instruction: '实现页面', actor_name: '研发' })
+      onChunk({ type: 'artifact_recorded', task_id: 'task-1', path: 'shared/page.md', description: '页面说明', actor_name: '研发' })
+      onChunk({ type: 'task_finished', task_id: 'task-1', worker_id: 'worker-1', worker_name: '研发', summary: '已完成页面', actor_name: '研发' })
+      onChunk({ type: 'run_finished', run_id: 'run-1', status: 'succeeded', summary: '全部完成', actor_name: '主控' })
+    })
+
+    render(<WorkspaceRunView workspace={{ id: 'ws-1', llm_profiles: [] }} />)
+
+    await waitFor(() => {
+      expect(workspaceApiMock.getSession).toHaveBeenCalledWith('ws-1', 'session-1')
+    })
+    const input = screen.getByPlaceholderText('输入任务，交给主控智能体...（Ctrl+Enter 发送）')
+    fireEvent.change(input, { target: { value: '实现页面' } })
+    fireEvent.click(screen.getByRole('button', { name: /发送/ }))
+
+    expect(await screen.findByTestId('run-task-panel')).toBeInTheDocument()
+    expect(await screen.findByText('task-1')).toBeInTheDocument()
+    expect((await screen.findAllByText(/实现页面/)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/shared\/page.md/)).toBeInTheDocument()
+    expect(await screen.findByText(/全部完成/)).toBeInTheDocument()
+  })
+
   it('switches session from top dropdown', async () => {
     workspaceApiMock.listSessions.mockResolvedValue([
       {

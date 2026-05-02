@@ -1,6 +1,6 @@
 # CLAUDE.md — YourMultiAgent
 
-个人多 Agent 平台，支持通过页面配置 Agent 数量、交互模式，Worker 可本机内置或远程接入。
+个人多 Agent 平台，支持通过页面配置 Agent 数量、交互模式，Worker 可本机内置或远程接入。Workspace 模式下由 Coordinator 生成 Task DAG，后端按依赖调度 Worker，并记录 Run / Task / Artifact。
 
 ## 项目结构
 
@@ -37,7 +37,7 @@ cd web && npx vitest run
 | 后端 | Python 3.12, FastAPI |
 | 前端 | React 19, Vite, Ant Design |
 | LLM | OpenAI / Anthropic（页面可配置） |
-| 持久化 | 内存（初期），后续按需接 SQLite |
+| 持久化 | Workspace JSON（当前），后续按需接 SQLite |
 | Worker 通信 | 内置 Local Worker（初期），WebSocket（远程扩展） |
 
 ## Agent 工作规范
@@ -70,6 +70,7 @@ cd web && npm run build
 - 后端遵守 COLA 分层，避免在接口层堆积业务逻辑
 - 前端遵守既有页面和状态管理方式，避免无必要的大规模重构
 - Agent 能力设计优先考虑可扩展性，但首版实现以可运行、可验证为先
+- 多 Agent 运行模型以 Run / Task / Artifact 为核心，Worker Runtime 只执行 capability，不承载任务调度逻辑
 - 涉及多 Worker 通信时，先保证本机内置 Worker 路径清晰，再扩远程接入
 - `Agents.md` 只保留高层约定、入口说明和关键索引；当某一主题细节变多或主文档体量明显增大时，优先拆分到 `docs/*.md`，并在 `Agents.md` 中保留链接与简短摘要
 

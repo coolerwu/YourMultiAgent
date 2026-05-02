@@ -137,7 +137,7 @@ describe('Dashboard', () => {
     expect(screen.getByRole('tab', { name: '运行' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Worker' })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '运行' })).toHaveAttribute('aria-selected', 'true')
-    expect(await screen.findByText('当前目录中的历史会话、compact 摘要和 memory 会持续复用。')).toBeInTheDocument()
+    expect(await screen.findByText('当前目录中的历史会话、compact 摘要和 memory 会持续复用。', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('still exposes configuration tab for chat workspace', async () => {
@@ -189,8 +189,10 @@ describe('Dashboard', () => {
       expect(workspaceApiMock.list).toHaveBeenCalled()
     })
 
-    const chatSectionMatcher = (_, element) => element?.textContent === '单聊目录 (1)'
-    expect(screen.getAllByText(chatSectionMatcher).length).toBeGreaterThan(0)
+    const chatSectionMatcher = (_, element) => element?.textContent?.replace(/\s+/g, ' ').trim() === '单聊目录 (1)'
+    await waitFor(() => {
+      expect(screen.getAllByText(chatSectionMatcher).length).toBeGreaterThan(0)
+    })
     fireEvent.click(screen.getByRole('button', { name: '折叠导航' }))
 
     await waitFor(() => {

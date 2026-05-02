@@ -35,10 +35,10 @@ flowchart LR
   - 通过 HTTP API 和 WebSocket 与 Central Server 通信
 - `Central Server`
   - 系统核心容器
-  - 负责 Workspace 编排、会话历史、Prompt 注入、工具路由、远程 Worker 接入和前端静态资源托管
+  - 负责 Workspace 编排、Coordinator 计划生成、Task DAG 调度、会话历史、Prompt 注入、工具路由、远程 Worker 接入和前端静态资源托管
 - `Workspace Store`
   - 当前持久化容器
-  - 使用 `setting.json` 与各 Workspace 的 `workspace.json` 保存配置、会话和编排数据
+  - 使用 `setting.json` 与各 Workspace 的 `workspace.json` 保存配置、会话、Run、Task、Artifact 和编排数据
 - `Local Worker Runtime`
   - Server 进程内能力执行容器
   - 提供文件、命令、HTTP 等 capability
@@ -52,6 +52,7 @@ flowchart LR
 ## 后端边界
 
 - 后端负责“编排、上下文、路由、治理”，不直接承担所有执行能力
+- 多 Agent 运行以 Run / Task / Artifact 为核心记录；Worker Runtime 只执行 capability，不理解任务调度
 - 工具执行优先通过 WorkerGateway 统一抽象，不在编排层硬编码具体能力实现
 - 持久化当前限定为 JSON 文件，不引入数据库和向量检索
 

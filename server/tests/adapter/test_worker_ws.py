@@ -15,6 +15,15 @@ from server.domain.agent.agent_entity import GlobalSettingsEntity, PageAuthConfi
 from server.infra.store.workspace_json import save_global_settings
 
 
+@pytest.fixture(autouse=True)
+def _disable_page_auth(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    save_global_settings(
+        tmp_path,
+        GlobalSettingsEntity(page_auth=PageAuthConfigEntity(enabled=False)),
+    )
+
+
 class _WorkerRouterStub:
     def __init__(self):
         self.registered = []

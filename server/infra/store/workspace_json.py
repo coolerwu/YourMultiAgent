@@ -28,6 +28,7 @@ from server.domain.agent.agent_entity import (
     WorkspaceKind,
     WorkspaceEntity,
 )
+from server.domain.agent.run_entity import ArtifactEntity, RunEntity, TaskEntity
 
 
 def sanitize_workspace_name(name: str) -> str:
@@ -347,4 +348,44 @@ def _session_from_dict(d: dict) -> ChatSessionEntity:
             )
             for item in d.get("messages", [])
         ],
+        runs=[_run_from_dict(item) for item in d.get("runs", []) if isinstance(item, dict)],
+    )
+
+
+def _run_from_dict(d: dict) -> RunEntity:
+    return RunEntity(
+        id=d.get("id", ""),
+        status=d.get("status", "succeeded"),
+        user_message=d.get("user_message", ""),
+        plan_text=d.get("plan_text", ""),
+        tasks=[_task_from_dict(item) for item in d.get("tasks", []) if isinstance(item, dict)],
+        artifacts=[_artifact_from_dict(item) for item in d.get("artifacts", []) if isinstance(item, dict)],
+        summary=d.get("summary", ""),
+        error=d.get("error", ""),
+        created_at=d.get("created_at", ""),
+        updated_at=d.get("updated_at", ""),
+    )
+
+
+def _task_from_dict(d: dict) -> TaskEntity:
+    return TaskEntity(
+        id=d.get("id", ""),
+        worker_id=d.get("worker_id", ""),
+        instruction=d.get("instruction", ""),
+        dependencies=[item for item in d.get("dependencies", []) if isinstance(item, str)],
+        status=d.get("status", "pending"),
+        result=d.get("result", ""),
+        expected_output=d.get("expected_output", ""),
+        error=d.get("error", ""),
+        artifacts=[_artifact_from_dict(item) for item in d.get("artifacts", []) if isinstance(item, dict)],
+    )
+
+
+def _artifact_from_dict(d: dict) -> ArtifactEntity:
+    return ArtifactEntity(
+        path=d.get("path", ""),
+        task_id=d.get("task_id", ""),
+        worker_id=d.get("worker_id", ""),
+        description=d.get("description", ""),
+        created_at=d.get("created_at", ""),
     )

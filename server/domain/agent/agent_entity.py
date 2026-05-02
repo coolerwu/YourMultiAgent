@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+from server.domain.agent.run_entity import RunEntity
+
 
 class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
@@ -201,6 +203,7 @@ class ChatSessionEntity:
     summary: str = ""
     memory_items: list[MemoryItemEntity] = field(default_factory=list)
     messages: list[ChatMessageEntity] = field(default_factory=list)
+    runs: list[RunEntity] = field(default_factory=list)
 
 
 @dataclass

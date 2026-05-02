@@ -165,7 +165,20 @@ class AgentAppService:
                         actor_name=chunk.get("actor_name", ""),
                         node=chunk.get("node", ""),
                     )
-                elif chunk_type in {"plan_created", "task_assigned", "worker_result", "tool_start", "tool_end", "step_changed"}:
+                elif chunk_type in {
+                    "run_started",
+                    "plan_created",
+                    "task_started",
+                    "task_assigned",
+                    "task_finished",
+                    "task_failed",
+                    "artifact_recorded",
+                    "worker_result",
+                    "run_finished",
+                    "tool_start",
+                    "tool_end",
+                    "step_changed",
+                }:
                     append_session_message(
                         session,
                         role="event",
@@ -622,12 +635,27 @@ def _find_session(sessions: list[ChatSessionEntity], session_id: str) -> ChatSes
 
 def _event_to_content(event: dict) -> str:
     event_type = event.get("type", "")
+    if event_type == "run_started":
+        return "本次 Run 已开始"
     if event_type == "plan_created":
+        tasks = event.get("tasks")
+        if isinstance(tasks, list):
+            return f"{event.get('coordinator_name', '主控智能体')} 已生成任务计划，共 {len(tasks)} 个任务"
         return f"{event.get('coordinator_name', '主控智能体')} 开始拆解任务"
+    if event_type == "task_started":
+        return f"任务 {event.get('task_id', '')} 开始执行：{event.get('worker_name', '')}"
     if event_type == "task_assigned":
         return f"已分派给 {event.get('worker_name', '')}：{event.get('assignment', '')}"
+    if event_type == "task_finished":
+        return f"任务 {event.get('task_id', '')} 已完成：{event.get('summary', '')}"
+    if event_type == "task_failed":
+        return f"任务 {event.get('task_id', '')} 失败：{event.get('error', '')}"
+    if event_type == "artifact_recorded":
+        return f"记录交付物：{event.get('path', '')}"
     if event_type == "worker_result":
         return f"{event.get('worker_name', '')} 已交付结果：{event.get('summary', '')}"
+    if event_type == "run_finished":
+        return f"本次 Run 已完成：{event.get('summary', '')}"
     if event_type == "tool_start":
         return f"调用工具 {event.get('tool', '')}"
     if event_type == "tool_end":
